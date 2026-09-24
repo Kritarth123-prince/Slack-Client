@@ -42,6 +42,7 @@ export interface SlackEventEnvelope {
   type: "url_verification" | "event_callback";
   challenge?: string;
   event_id?: string;
+  team_id?: string;
   event?: {
     type: string;
     channel?: string;
@@ -53,6 +54,8 @@ export interface SlackEventEnvelope {
     reaction?: string;
     item?: { channel?: string; ts?: string };
     item_user?: string;
+    deleted_ts?: string;
+    message?: { ts?: string; text?: string; user?: string; thread_ts?: string };
     [key: string]: unknown;
   };
 }

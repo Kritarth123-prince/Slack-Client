@@ -50,16 +50,18 @@ export async function createUserSession(
   await session.save();
 }
 
-/** Returns the authenticated user's id, validating the session row is still live (not revoked/expired). */
+/**
+ * Returns the authenticated user's id, validating the session row is still live (not revoked/expired).
+ * Deliberately does not clear the cookie on an invalid session — this is called from Server Components
+ * (e.g. page render), where Next.js forbids mutating cookies. A stale cookie is harmless: it just keeps
+ * failing this lookup until it's overwritten by a fresh login.
+ */
 export async function requireUserId(): Promise<string | null> {
   const session = await getSession();
   if (!session.userId || !session.sessionRecordId) return null;
 
   const record = await prisma.session.findUnique({ where: { id: session.sessionRecordId } });
-  if (!record || record.expiresAt < new Date()) {
-    await session.destroy();
-    return null;
-  }
+  if (!record || record.expiresAt < new Date()) return null;
 
   return session.userId;
 }

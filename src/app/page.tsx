@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireUserId } from "@/lib/auth/session";
 
 export default async function Home() {
@@ -15,9 +16,15 @@ export default async function Home() {
             <p className="text-zinc-600 dark:text-zinc-400">
               You&apos;re connected to Slack.
             </p>
+            <Link
+              href="/app"
+              className="rounded-full bg-foreground px-5 py-3 text-sm font-medium text-background hover:bg-[#383838] dark:hover:bg-[#ccc]"
+            >
+              Open messages
+            </Link>
             <a
               href="/api/auth/logout"
-              className="rounded-full border border-black/[.08] px-5 py-3 text-sm font-medium hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+              className="text-sm text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
             >
               Log out
             </a>
