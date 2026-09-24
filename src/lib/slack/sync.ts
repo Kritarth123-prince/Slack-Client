@@ -9,12 +9,26 @@ type SlackEvent = NonNullable<SlackEventEnvelope["event"]>;
 interface SlackChannelLike {
   id?: string;
   name?: string;
+  user?: string; // the other party's Slack user id, present on IM channels
   topic?: { value?: string };
   is_im?: boolean;
   is_mpim?: boolean;
   is_private?: boolean;
   is_archived?: boolean;
   is_member?: boolean;
+}
+
+const MENTION_RE = /<@([A-Z0-9]+)(?:\|[^>]*)?>/g;
+
+/** Ensures every user mentioned in a message's text is cached, so their name can be resolved for display. */
+async function resolveMentionedUsers(workspaceId: string, client: WebClient, text: string): Promise<void> {
+  const ids = new Set<string>();
+  for (const match of text.matchAll(MENTION_RE)) {
+    ids.add(match[1]);
+  }
+  for (const id of ids) {
+    await upsertWorkspaceUser(workspaceId, client, id);
+  }
 }
 
 function mapConversationType(channel: SlackChannelLike): ConversationType {
@@ -77,6 +91,36 @@ function tsToDate(slackTs: string): Date {
   return new Date(Number(slackTs.split(".")[0]) * 1000);
 }
 
+async function fetchConversationMemberIds(client: WebClient, slackConversationId: string): Promise<string[]> {
+  const memberIds: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const res = await client.conversations.members({ channel: slackConversationId, limit: 200, cursor });
+    memberIds.push(...(res.members ?? []));
+    cursor = res.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+  return memberIds;
+}
+
+async function upsertConversationMember(conversationId: string, slackUserRowId: string): Promise<void> {
+  await prisma.conversationMember.upsert({
+    where: { conversationId_slackUserId: { conversationId, slackUserId: slackUserRowId } },
+    update: {},
+    create: { conversationId, slackUserId: slackUserRowId },
+  });
+}
+
+/** Returns this conversation's members, resolved to display names (used by the @-mention picker). */
+export async function listConversationMembers(
+  userId: string,
+  conversation: Conversation
+): Promise<{ id: string; displayName: string }[]> {
+  const client = await getSlackClientForUser(userId);
+  const memberIds = await fetchConversationMemberIds(client, conversation.slackConversationId);
+  const users = await Promise.all(memberIds.map((id) => upsertWorkspaceUser(conversation.workspaceId, client, id)));
+  return users.map((u) => ({ id: u.slackUserId, displayName: u.displayName }));
+}
+
 /** Fetches the conversations the authorizing user is a member of and upserts them. */
 export async function syncConversationsForUser(userId: string): Promise<void> {
   const installation = await prisma.slackInstallation.findFirst({
@@ -98,7 +142,22 @@ export async function syncConversationsForUser(userId: string): Promise<void> {
 
     for (const channel of res.channels ?? []) {
       if ((channel.is_channel || channel.is_group) && channel.is_member === false) continue;
-      await upsertConversation(installation.workspaceId, channel);
+
+      const conversation = await upsertConversation(installation.workspaceId, channel);
+      if (!conversation) continue;
+
+      // DMs/group DMs have no channel name, so we need their members to build a display label.
+      if (channel.is_im && channel.user) {
+        const other = await upsertWorkspaceUser(installation.workspaceId, client, channel.user);
+        await upsertConversationMember(conversation.id, other.id);
+      } else if (channel.is_mpim) {
+        const memberIds = await fetchConversationMemberIds(client, conversation.slackConversationId);
+        for (const slackUserId of memberIds) {
+          if (slackUserId === installation.slackUserId) continue;
+          const member = await upsertWorkspaceUser(installation.workspaceId, client, slackUserId);
+          await upsertConversationMember(conversation.id, member.id);
+        }
+      }
     }
 
     cursor = res.response_metadata?.next_cursor || undefined;
@@ -121,6 +180,7 @@ export async function syncMessages(userId: string, conversation: Conversation, l
       const author = await upsertWorkspaceUser(conversation.workspaceId, client, msg.user);
       authorId = author.id;
     }
+    if (msg.text) await resolveMentionedUsers(conversation.workspaceId, client, msg.text);
 
     await prisma.message.upsert({
       where: { conversationId_slackTs: { conversationId: conversation.id, slackTs: msg.ts } },
@@ -170,6 +230,7 @@ export async function postMessage(
   if (!res.ts) throw new Error("Slack did not return a timestamp for the sent message");
 
   const author = await upsertWorkspaceUser(conversation.workspaceId, client, installation.slackUserId);
+  await resolveMentionedUsers(conversation.workspaceId, client, text);
 
   await prisma.message.upsert({
     where: { conversationId_slackTs: { conversationId: conversation.id, slackTs: res.ts } },
@@ -252,6 +313,7 @@ async function handleMessageEvent(workspaceId: string, client: WebClient, event:
 
   const text = nested?.text ?? event.text ?? "";
   const threadTs = nested?.thread_ts ?? event.thread_ts ?? ts;
+  if (text) await resolveMentionedUsers(workspaceId, client, text);
 
   await prisma.message.upsert({
     where: { conversationId_slackTs: { conversationId: conversation.id, slackTs: ts } },

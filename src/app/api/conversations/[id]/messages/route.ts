@@ -18,13 +18,18 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     logger.error("Failed to sync messages", { message: (err as Error).message });
   }
 
-  const messages = await prisma.message.findMany({
-    where: { conversationId: conversation.id, deletedAt: null },
-    orderBy: { createdAt: "asc" },
-    include: { author: true },
-  });
+  const [messages, workspaceUsers] = await Promise.all([
+    prisma.message.findMany({
+      where: { conversationId: conversation.id, deletedAt: null },
+      orderBy: { slackTs: "asc" },
+      include: { author: true },
+    }),
+    prisma.slackUser.findMany({ where: { workspaceId: conversation.workspaceId } }),
+  ]);
 
-  return NextResponse.json({ messages });
+  const userNames = Object.fromEntries(workspaceUsers.map((u) => [u.slackUserId, u.displayName]));
+
+  return NextResponse.json({ messages, userNames });
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

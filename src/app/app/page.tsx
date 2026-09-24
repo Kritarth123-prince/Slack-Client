@@ -3,11 +3,7 @@ import Link from "next/link";
 import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { syncConversationsForUser } from "@/lib/slack/sync";
-
-function conversationLabel(name: string | null, type: string): string {
-  if (name) return type === "PUBLIC_CHANNEL" || type === "PRIVATE_CHANNEL" ? `#${name}` : name;
-  return type === "DM" ? "Direct message" : "Group message";
-}
+import { conversationLabel } from "@/lib/slack/conversationLabel";
 
 export default async function AppHome() {
   const userId = await requireUserId();
@@ -24,6 +20,7 @@ export default async function AppHome() {
   const conversations = await prisma.conversation.findMany({
     where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
     orderBy: [{ lastMessageAt: "desc" }],
+    include: { members: { include: { slackUser: true } } },
   });
 
   return (
@@ -43,7 +40,7 @@ export default async function AppHome() {
               href={`/app/${conversation.id}`}
               className="block rounded-lg border border-black/[.08] px-4 py-3 hover:bg-black/[.03] dark:border-white/[.145] dark:hover:bg-white/[.03]"
             >
-              {conversationLabel(conversation.name, conversation.type)}
+              {conversationLabel(conversation, installation.slackUserId)}
             </Link>
           </li>
         ))}
