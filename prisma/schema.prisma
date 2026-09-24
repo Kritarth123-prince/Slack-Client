@@ -1,0 +1,258 @@
+// Prisma schema for the Slack web client.
+// See docs/data-model.md for the rationale behind each model.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Local application account ────────────────────────────────────────────
+// One row per person who has connected a Slack account to this app.
+model User {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  installations           SlackInstallation[]
+  preference              UserPreference?
+  notificationSubscriptions NotificationSubscription[]
+  readStates              ReadState[]
+  sessions                Session[]
+}
+
+// Server-side session record backing the HttpOnly session cookie.
+// Storing sessions in the DB (rather than only a signed cookie) lets us
+// revoke a session immediately (logout everywhere, token revoked, etc).
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userAgent String?
+  ipHash    String?
+
+  @@index([userId])
+}
+
+// ── Slack OAuth installation ─────────────────────────────────────────────
+// Tokens are encrypted at rest (see src/lib/slack/tokenCipher.ts) and are
+// never sent to the browser.
+model SlackInstallation {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  slackUserId String // the Slack user_id this installation authenticates as
+
+  encryptedAccessToken String // user token (xoxp-...), encrypted
+  tokenIv              String
+  tokenAuthTag         String
+
+  scopes    String // space-separated granted scopes, for auditing/display
+  botUserId String?
+
+  installedAt DateTime  @default(now())
+  revokedAt   DateTime?
+
+  @@unique([workspaceId, slackUserId])
+  @@index([userId])
+}
+
+// ── Slack workspace (team) ───────────────────────────────────────────────
+model Workspace {
+  id              String   @id @default(cuid())
+  slackTeamId     String   @unique
+  name            String
+  domain          String?
+  iconUrl         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  installations  SlackInstallation[]
+  slackUsers     SlackUser[]
+  conversations  Conversation[]
+}
+
+// Cached profile info for Slack members, populated lazily as they are
+// referenced by messages/conversations the authorized user can see.
+model SlackUser {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  slackUserId String
+  displayName String
+  realName    String?
+  avatarUrl   String?
+  isBot       Boolean  @default(false)
+  deleted     Boolean  @default(false)
+
+  updatedAt DateTime @updatedAt
+
+  messages           Message[]
+  reactions          Reaction[]
+  conversationMembers ConversationMember[]
+
+  @@unique([workspaceId, slackUserId])
+  @@index([workspaceId])
+}
+
+enum ConversationType {
+  PUBLIC_CHANNEL
+  PRIVATE_CHANNEL
+  DM
+  GROUP_DM
+}
+
+// A synchronized Slack conversation (channel, DM, or group DM) that the
+// authorized user has access to. We never store conversations outside
+// what Slack's API returns for the authorized token.
+model Conversation {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  slackConversationId String
+  type                ConversationType
+  name                String? // null for DMs; derived client-side from members
+  topic               String?
+  isArchived          Boolean @default(false)
+  isMember            Boolean @default(true)
+
+  lastSyncedCursor String? // Slack pagination cursor for incremental history sync
+  lastMessageAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members    ConversationMember[]
+  messages   Message[]
+  readStates ReadState[]
+
+  @@unique([workspaceId, slackConversationId])
+  @@index([workspaceId, lastMessageAt])
+}
+
+model ConversationMember {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  slackUserId    String
+  slackUser      SlackUser    @relation(fields: [slackUserId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, slackUserId])
+  @@index([slackUserId])
+}
+
+// A Slack message. Root messages have threadTs == slackTs; replies have
+// threadTs pointing at the parent's slackTs. This mirrors Slack's own
+// model and avoids a separate denormalized Thread table drifting out of
+// sync — reply counts are derived with a query, not stored twice.
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  slackTs   String // Slack's message timestamp, unique within a conversation
+  threadTs  String? // set on every message that belongs to a thread (root included)
+  authorId  String?
+  author    SlackUser? @relation(fields: [authorId], references: [id])
+
+  text      String
+  isEdited  Boolean  @default(false)
+  deletedAt DateTime?
+
+  raw Json // full Slack message payload, for fields we don't model explicitly (files, blocks, attachments)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reactions Reaction[]
+
+  @@unique([conversationId, slackTs])
+  @@index([conversationId, threadTs])
+  @@index([conversationId, createdAt])
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  emoji     String
+  slackUserId String
+  slackUser SlackUser @relation(fields: [slackUserId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, emoji, slackUserId])
+  @@index([messageId])
+}
+
+// Per-user, per-conversation read cursor, used to compute unread counts
+// and mention badges without re-fetching from Slack on every render.
+model ReadState {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  lastReadTs String // last slackTs the user has seen
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, conversationId])
+}
+
+model NotificationSubscription {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  endpoint  String @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime @default(now())
+  disabledAt   DateTime?
+
+  @@index([userId])
+}
+
+model UserPreference {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  theme    String @default("system") // "light" | "dark" | "system"
+  density  String @default("comfortable") // "comfortable" | "compact"
+
+  notifyDirectMessages Boolean @default(true)
+  notifyMentions       Boolean @default(true)
+  notifyThreadReplies  Boolean @default(true)
+  notifyChannelMessages Boolean @default(false)
+
+  quietHoursStart String? // "HH:mm", 24h, e.g. "22:00"
+  quietHoursEnd   String? // "HH:mm", 24h, e.g. "07:00"
+
+  lowBandwidthMode Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+}
+
+// Every Slack event (Events API callback or Socket Mode envelope) is
+// recorded by its delivery id before processing, so a retried delivery
+// is a no-op rather than a duplicate message/reaction.
+model ProcessedSlackEvent {
+  id          String   @id // Slack's event_id
+  eventType   String
+  processedAt DateTime @default(now())
+}
