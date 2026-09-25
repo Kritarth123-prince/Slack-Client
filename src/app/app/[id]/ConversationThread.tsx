@@ -63,6 +63,7 @@ interface ApiMessage {
 }
 
 const POLL_INTERVAL_MS = 4000;
+const NOTIFY_SYNC_INTERVAL_MS = 15000;
 const NEAR_BOTTOM_PX = 120;
 
 const EMOJI_GLYPHS: Record<string, string> = {
@@ -247,6 +248,20 @@ export function ConversationThread({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is stable enough for polling purposes
   }, [conversationId]);
+
+  // Deliberately separate from the thread-specific poll above and NOT gated on visibility: this
+  // is what triggers the server-side check for new messages across every conversation (not just
+  // this open one) and sends push notifications for them. Without it, being inside a specific
+  // conversation with the tab backgrounded would mean no notifications for anything happening
+  // elsewhere in the workspace, since the conversation list (which normally drives this) isn't
+  // even mounted while a thread is open. Runs at the same cadence as the conversation list's own
+  // background sync.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetch("/api/conversations").catch(() => {});
+    }, NOTIFY_SYNC_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, []);
 
   async function toggleReaction(messageId: string, emoji: string) {
     setPickerFor(null);

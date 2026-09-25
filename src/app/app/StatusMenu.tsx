@@ -10,6 +10,7 @@ interface StatusView {
   statusEmoji: string | null;
   statusText: string | null;
   statusExpiresAt: string | null;
+  slackSyncWarning: string | null;
 }
 
 const STATUS_PRESETS: { emoji: string; text: string }[] = [
@@ -129,6 +130,11 @@ export function StatusMenu() {
 
       {open && (
         <div className="card-surface absolute right-0 z-20 mt-2 w-72 rounded-2xl p-3 text-sm">
+          {status.slackSyncWarning && (
+            <p className="mb-2 rounded-lg bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+              ⚠️ {status.slackSyncWarning}
+            </p>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => setPresence("active")}

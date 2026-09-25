@@ -45,23 +45,29 @@ export function ConversationList({ initial }: { initial: ConversationListItem[] 
     let cancelled = false;
 
     function load() {
+      // Deliberately NOT gated on document.visibilityState: this call is what triggers the
+      // server-side catch-up + push-notification check (syncAllConversationsAndNotify), so a
+      // background/unfocused tab still needs it to run in order to notify you of new messages —
+      // gating it on visibility would mean push notifications only ever fire once you've already
+      // opened the app, defeating their purpose.
       fetch("/api/conversations")
         .then((res) => (res.ok ? res.json() : null))
         .then((data: { conversations?: ConversationListItem[] } | null) => {
           if (!cancelled && data?.conversations) setItems(data.conversations);
         })
         .catch(() => {});
-      // Lets "automatically set Away after inactivity" track actual app usage rather than just
-      // tab-open time — being on this screen counts as activity.
-      fetch("/api/status/heartbeat", { method: "POST" }).catch(() => {});
+
+      // Activity heartbeat IS gated on visibility, unlike the sync above — this is what "away
+      // after inactivity" measures, so a backgrounded/unfocused tab must NOT count as activity.
+      if (document.visibilityState === "visible") {
+        fetch("/api/status/heartbeat", { method: "POST" }).catch(() => {});
+      }
     }
 
     // Refresh immediately on mount (e.g. returning here after reading a thread) instead of
     // only showing the page's initial server-rendered snapshot until the next poll tick.
     load();
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") load();
-    }, POLL_INTERVAL_MS);
+    const interval = setInterval(load, POLL_INTERVAL_MS);
 
     // Mobile browsers throttle timers heavily once the tab/app is backgrounded, so also refresh
     // the instant it becomes visible again (e.g. unlocking the phone back into this tab) instead
