@@ -38,6 +38,9 @@ Under **OAuth & Permissions**:
 | `reactions:read` | See existing emoji reactions |
 | `reactions:write` | Add/remove your emoji reactions |
 | `pins:write` | Pin/unpin messages from within the app |
+| `users.profile:write` | Set your custom status text/emoji |
+| `users:write` | Set your active/away presence |
+| `dnd:write` | Turn Do Not Disturb on/off |
 | `users:read` | Resolve user IDs to names/avatars |
 | `users.profile:read` | Read profile details for display |
 | `files:read` | Download files/images attached to messages |

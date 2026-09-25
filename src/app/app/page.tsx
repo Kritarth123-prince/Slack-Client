@@ -5,6 +5,7 @@ import { syncConversationsForUser } from "@/lib/slack/sync";
 import { conversationLabel, conversationAvatarUrl } from "@/lib/slack/conversationLabel";
 import { ConversationList } from "./ConversationList";
 import { NotificationSetup } from "./NotificationSetup";
+import { StatusMenu } from "./StatusMenu";
 
 export default async function AppHome() {
   const userId = await requireUserId();
@@ -43,7 +44,10 @@ export default async function AppHome() {
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
-      <h1 className="gradient-text text-2xl font-bold tracking-tight">Conversations</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="gradient-text text-2xl font-bold tracking-tight">Conversations</h1>
+        <StatusMenu />
+      </div>
       <NotificationSetup />
       <ConversationList initial={items} />
     </div>

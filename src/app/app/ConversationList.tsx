@@ -51,6 +51,9 @@ export function ConversationList({ initial }: { initial: ConversationListItem[] 
           if (!cancelled && data?.conversations) setItems(data.conversations);
         })
         .catch(() => {});
+      // Lets "automatically set Away after inactivity" track actual app usage rather than just
+      // tab-open time — being on this screen counts as activity.
+      fetch("/api/status/heartbeat", { method: "POST" }).catch(() => {});
     }
 
     // Refresh immediately on mount (e.g. returning here after reading a thread) instead of

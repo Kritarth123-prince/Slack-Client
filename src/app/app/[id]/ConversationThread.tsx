@@ -229,18 +229,21 @@ export function ConversationThread({
   // browsers throttle timers heavily once the tab/app is backgrounded, so also refresh the
   // instant it becomes visible again rather than waiting for the next tick.
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") refresh().catch(() => {});
-    }, POLL_INTERVAL_MS);
-
-    function onVisible() {
-      if (document.visibilityState === "visible") refresh().catch(() => {});
+    function tick() {
+      if (document.visibilityState !== "visible") return;
+      refresh().catch(() => {});
+      // Lets "automatically set Away after inactivity" track actual app usage rather than just
+      // tab-open time — being in an open thread counts as activity.
+      fetch("/api/status/heartbeat", { method: "POST" }).catch(() => {});
     }
-    document.addEventListener("visibilitychange", onVisible);
+
+    tick();
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+    document.addEventListener("visibilitychange", tick);
 
     return () => {
       clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", tick);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is stable enough for polling purposes
   }, [conversationId]);

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { getSlackClientForUser } from "@/lib/slack/client";
 import type { SlackEventEnvelope } from "@/lib/slack/events";
 import { sendPushToUser } from "@/lib/push";
+import { isDoNotDisturb } from "@/lib/slack/presence";
 import { logger } from "@/lib/logger";
 
 type SlackEvent = NonNullable<SlackEventEnvelope["event"]>;
@@ -322,7 +323,7 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
   });
   if (!installation) return;
 
-  const [conversations, self] = await Promise.all([
+  const [conversations, self, doNotDisturb] = await Promise.all([
     prisma.conversation.findMany({
       where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
       // Most-recently-active first, so a large channel list degrades gracefully: whatever gets
@@ -335,6 +336,7 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
         workspaceId_slackUserId: { workspaceId: installation.workspaceId, slackUserId: installation.slackUserId },
       },
     }),
+    isDoNotDisturb(userId),
   ]);
 
   const startedAt = Date.now();
@@ -356,7 +358,7 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
     }
 
     for (const msg of newMessages) {
-      if (!msg.authorId || msg.authorId === self?.id) continue;
+      if (!msg.authorId || msg.authorId === self?.id || doNotDisturb) continue;
 
       const author = await prisma.slackUser.findUnique({ where: { id: msg.authorId } });
       await sendPushToUser(userId, {

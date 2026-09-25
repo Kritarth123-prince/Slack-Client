@@ -272,6 +272,22 @@ model UserPreference {
 
   lowBandwidthMode Boolean @default(false)
 
+  // Presence/status. `presence` is the last computed/synced value; `presenceManual` means the
+  // user pinned it themselves (via the Away button), so auto-away logic leaves it alone until
+  // they go Active again — mirrors Slack's own behavior where a manual "Away" sticks around
+  // rather than being cleared by the next mouse move.
+  presence        String   @default("active") // "active" | "away"
+  presenceManual  Boolean  @default(false)
+  lastActiveAt    DateTime @default(now())
+  autoAwayEnabled Boolean  @default(true)
+  doNotDisturb    Boolean  @default(false)
+
+  // Custom status (Slack's "🏠 Working from home" style). `statusExpiresAt` is lazily checked
+  // and cleared on read rather than needing a cron job.
+  statusEmoji     String?
+  statusText      String?
+  statusExpiresAt DateTime?
+
   updatedAt DateTime @updatedAt
 }
 

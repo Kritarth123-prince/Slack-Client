@@ -30,6 +30,15 @@ export const SLACK_USER_SCOPES = [
   // Pin/unpin messages from within the app.
   "pins:write",
 
+  // Set custom status text/emoji.
+  "users.profile:write",
+
+  // Set active/away presence.
+  "users:write",
+
+  // Turn Do Not Disturb on/off.
+  "dnd:write",
+
   // Resolve member IDs to profile info (name, avatar) for display.
   "users:read",
   "users.profile:read",
