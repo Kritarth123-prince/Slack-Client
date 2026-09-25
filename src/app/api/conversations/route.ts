@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { conversationLabel } from "@/lib/slack/conversationLabel";
+import { conversationLabel, conversationAvatarUrl } from "@/lib/slack/conversationLabel";
 import { logger } from "@/lib/logger";
 
 export async function GET() {
@@ -29,7 +29,13 @@ export async function GET() {
     const result = conversations.map((c) => {
       const lastRead = readMap.get(c.id);
       const unread = Boolean(c.lastMessageTs) && (!lastRead || lastRead < c.lastMessageTs!);
-      return { id: c.id, label: conversationLabel(c, installation.slackUserId), unread };
+      return {
+        id: c.id,
+        label: conversationLabel(c, installation.slackUserId),
+        unread,
+        type: c.type,
+        avatarUrl: conversationAvatarUrl(c, installation.slackUserId),
+      };
     });
 
     return NextResponse.json({ conversations: result });

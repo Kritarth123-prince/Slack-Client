@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { SlackText } from "@/lib/slack/formatSlackText";
 import type { SlackFileView } from "@/lib/slack/messageFiles";
+import { avatarGradient, initials } from "@/lib/ui/avatar";
 
 export interface ReactionView {
   emoji: string;
@@ -15,6 +17,8 @@ export interface MessageView {
   text: string;
   createdAt: string;
   authorName: string;
+  authorAvatarUrl: string | null;
+  isSelf: boolean;
   files: SlackFileView[];
   reactions: ReactionView[];
 }
@@ -28,7 +32,8 @@ interface ApiMessage {
   id: string;
   text: string;
   createdAt: string;
-  author: { displayName: string } | null;
+  author: { displayName: string; avatarUrl: string | null } | null;
+  isSelf: boolean;
   files: SlackFileView[];
   reactions: ReactionView[];
 }
@@ -70,7 +75,11 @@ function FileAttachment({ file }: { file: SlackFileView }) {
     return (
       <a href={file.proxyUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block max-w-xs">
         {/* eslint-disable-next-line @next/next/no-img-element -- proxied, dynamic-origin image; next/image would need domain config for our own route */}
-        <img src={file.proxyUrl} alt={file.name} className="rounded-lg border border-black/[.08] dark:border-white/[.145]" />
+        <img
+          src={file.proxyUrl}
+          alt={file.name}
+          className="rounded-xl border border-black/[.08] shadow-sm dark:border-white/[.145]"
+        />
       </a>
     );
   }
@@ -80,13 +89,31 @@ function FileAttachment({ file }: { file: SlackFileView }) {
       href={file.proxyUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="mt-2 flex max-w-xs flex-col gap-0.5 rounded-lg border border-black/[.08] px-3 py-2 text-sm hover:bg-black/[.03] dark:border-white/[.145] dark:hover:bg-white/[.05]"
+      className="mt-2 flex max-w-xs flex-col gap-0.5 rounded-xl border border-black/[.08] bg-white/60 px-3 py-2 text-sm shadow-sm hover:bg-white dark:border-white/[.145] dark:bg-black/20 dark:hover:bg-black/40"
     >
-      <span className="truncate font-medium">{file.name}</span>
+      <span className="truncate font-medium">📎 {file.name}</span>
       <span className="text-xs text-zinc-500 dark:text-zinc-400">
         {file.filetype.toUpperCase()} {formatFileSize(file.size)}
       </span>
     </a>
+  );
+}
+
+function Avatar({ seed, name, avatarUrl }: { seed: string; name: string; avatarUrl: string | null }) {
+  if (avatarUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- external Slack CDN URL, not a local/static asset
+      <img src={avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover shadow-sm" />
+    );
+  }
+
+  return (
+    <div
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm"
+      style={{ backgroundImage: avatarGradient(seed) }}
+    >
+      {initials(name)}
+    </div>
   );
 }
 
@@ -141,6 +168,8 @@ export function ConversationThread({
         text: m.text,
         createdAt: m.createdAt,
         authorName: m.author?.displayName ?? "Unknown",
+        authorAvatarUrl: m.author?.avatarUrl ?? null,
+        isSelf: m.isSelf,
         files: m.files,
         reactions: m.reactions,
       }))
@@ -230,55 +259,77 @@ export function ConversationThread({
 
   return (
     <div className="mx-auto flex h-screen w-full max-w-2xl flex-col p-6">
-      <h1 className="mb-4 text-lg font-semibold text-black dark:text-zinc-50">{title}</h1>
+      <div className="mb-4 flex items-center gap-3">
+        <Link
+          href="/app"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          aria-label="Back to conversations"
+        >
+          ←
+        </Link>
+        <h1 className="gradient-text truncate text-lg font-bold">{title}</h1>
+      </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-1 py-2">
         {messages.map((m) => (
-          <div key={m.id} className="rounded-lg bg-black/[.03] px-3 py-2 dark:bg-white/[.05]">
-            <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{m.authorName}</div>
-            {m.text && (
-              <div className="text-black dark:text-zinc-50">
-                <SlackText text={m.text} userNames={userNames} />
-              </div>
-            )}
-            {m.files.map((file) => (
-              <FileAttachment key={file.id} file={file} />
-            ))}
+          <div key={m.id} className={`flex items-end gap-2 ${m.isSelf ? "flex-row-reverse" : ""}`}>
+            <Avatar seed={m.authorName} name={m.authorName} avatarUrl={m.authorAvatarUrl} />
+            <div className={`flex max-w-[75%] flex-col gap-1 ${m.isSelf ? "items-end" : "items-start"}`}>
+              {!m.isSelf && (
+                <span className="px-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">{m.authorName}</span>
+              )}
 
-            <div className="relative mt-1 flex flex-wrap items-center gap-1">
-              {m.reactions.map((r) => (
-                <button
-                  key={r.emoji}
-                  onClick={() => toggleReaction(m.id, r.emoji)}
-                  className={`rounded-full border px-2 py-0.5 text-xs ${
-                    r.reactedByMe
-                      ? "border-blue-500 bg-blue-500/10"
-                      : "border-black/[.08] hover:bg-black/[.03] dark:border-white/[.145] dark:hover:bg-white/[.05]"
-                  }`}
+              {m.text && (
+                <div
+                  className={
+                    m.isSelf
+                      ? "btn-primary rounded-2xl rounded-br-sm px-4 py-2 text-white"
+                      : "card-surface rounded-2xl rounded-bl-sm px-4 py-2"
+                  }
                 >
-                  {emojiGlyph(r.emoji)} {r.count}
-                </button>
-              ))}
-              <button
-                onClick={() => setPickerFor(pickerFor === m.id ? null : m.id)}
-                className="rounded-full border border-black/[.08] px-2 py-0.5 text-xs text-zinc-500 hover:bg-black/[.03] dark:border-white/[.145] dark:text-zinc-400 dark:hover:bg-white/[.05]"
-              >
-                +
-              </button>
-
-              {pickerFor === m.id && (
-                <div className="absolute bottom-full left-0 z-10 mb-1 flex gap-1 rounded-lg border border-black/[.08] bg-white p-1 shadow-lg dark:border-white/[.145] dark:bg-zinc-900">
-                  {QUICK_REACTIONS.map((name) => (
-                    <button
-                      key={name}
-                      onClick={() => toggleReaction(m.id, name)}
-                      className="rounded p-1 text-base hover:bg-black/[.04] dark:hover:bg-white/[.05]"
-                    >
-                      {emojiGlyph(name)}
-                    </button>
-                  ))}
+                  <SlackText text={m.text} userNames={userNames} />
                 </div>
               )}
+
+              {m.files.map((file) => (
+                <FileAttachment key={file.id} file={file} />
+              ))}
+
+              <div className="relative flex flex-wrap items-center gap-1">
+                {m.reactions.map((r) => (
+                  <button
+                    key={r.emoji}
+                    onClick={() => toggleReaction(m.id, r.emoji)}
+                    className={`rounded-full border px-2 py-0.5 text-xs ${
+                      r.reactedByMe
+                        ? "border-[var(--brand-from)] bg-[color-mix(in_srgb,var(--brand-from)_12%,transparent)]"
+                        : "border-black/[.08] hover:bg-black/[.03] dark:border-white/[.145] dark:hover:bg-white/[.05]"
+                    }`}
+                  >
+                    {emojiGlyph(r.emoji)} {r.count}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setPickerFor(pickerFor === m.id ? null : m.id)}
+                  className="rounded-full border border-black/[.08] px-2 py-0.5 text-xs text-zinc-500 hover:bg-black/[.03] dark:border-white/[.145] dark:text-zinc-400 dark:hover:bg-white/[.05]"
+                >
+                  +
+                </button>
+
+                {pickerFor === m.id && (
+                  <div className="card-surface absolute bottom-full left-0 z-10 mb-1 flex gap-1 rounded-xl p-1">
+                    {QUICK_REACTIONS.map((name) => (
+                      <button
+                        key={name}
+                        onClick={() => toggleReaction(m.id, name)}
+                        className="rounded-lg p-1 text-base hover:bg-black/[.04] dark:hover:bg-white/[.05]"
+                      >
+                        {emojiGlyph(name)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -286,13 +337,13 @@ export function ConversationThread({
 
       <form onSubmit={handleSend} className="relative mt-4 flex gap-2">
         {mentionQuery !== null && filteredMembers.length > 0 && (
-          <ul className="absolute bottom-full mb-1 w-64 rounded-lg border border-black/[.08] bg-white shadow-lg dark:border-white/[.145] dark:bg-zinc-900">
+          <ul className="card-surface absolute bottom-full mb-1 w-64 rounded-xl">
             {filteredMembers.map((m) => (
               <li key={m.id}>
                 <button
                   type="button"
                   onClick={() => selectMention(m)}
-                  className="block w-full px-3 py-2 text-left text-sm hover:bg-black/[.04] dark:hover:bg-white/[.05]"
+                  className="block w-full px-3 py-2 text-left text-sm first:rounded-t-xl last:rounded-b-xl hover:bg-black/[.04] dark:hover:bg-white/[.05]"
                 >
                   {m.displayName}
                 </button>
@@ -305,12 +356,12 @@ export function ConversationThread({
           value={text}
           onChange={handleTextChange}
           placeholder="Message... (type @ to mention someone)"
-          className="flex-1 rounded-full border border-black/[.08] px-4 py-2 text-black dark:border-white/[.145] dark:text-zinc-50"
+          className="card-surface flex-1 rounded-full px-4 py-2 text-black outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--brand-from)_40%,transparent)] dark:text-zinc-50"
         />
         <button
           type="submit"
           disabled={sending}
-          className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+          className="btn-primary rounded-full px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           Send
         </button>

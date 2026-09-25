@@ -53,7 +53,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     id: m.id,
     text: m.text,
     createdAt: m.createdAt,
-    author: m.author ? { displayName: m.author.displayName } : null,
+    author: m.author ? { displayName: m.author.displayName, avatarUrl: m.author.avatarUrl } : null,
+    isSelf: Boolean(self) && m.authorId === self?.id,
     files: extractSlackFiles(m.raw),
     reactions: groupReactions(m.reactions, self?.id),
   }));

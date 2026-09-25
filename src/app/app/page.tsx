@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { syncConversationsForUser } from "@/lib/slack/sync";
-import { conversationLabel } from "@/lib/slack/conversationLabel";
+import { conversationLabel, conversationAvatarUrl } from "@/lib/slack/conversationLabel";
 import { ConversationList } from "./ConversationList";
 import { NotificationSetup } from "./NotificationSetup";
 
@@ -32,12 +32,18 @@ export default async function AppHome() {
   const items = conversations.map((c) => {
     const lastRead = readMap.get(c.id);
     const unread = Boolean(c.lastMessageTs) && (!lastRead || lastRead < c.lastMessageTs!);
-    return { id: c.id, label: conversationLabel(c, installation.slackUserId), unread };
+    return {
+      id: c.id,
+      label: conversationLabel(c, installation.slackUserId),
+      unread,
+      type: c.type,
+      avatarUrl: conversationAvatarUrl(c, installation.slackUserId),
+    };
   });
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
-      <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Conversations</h1>
+      <h1 className="gradient-text text-2xl font-bold tracking-tight">Conversations</h1>
       <NotificationSetup />
       <ConversationList initial={items} />
     </div>

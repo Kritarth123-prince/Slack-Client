@@ -60,6 +60,8 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
         text: m.text,
         createdAt: m.createdAt.toISOString(),
         authorName: m.author?.displayName ?? "Unknown",
+        authorAvatarUrl: m.author?.avatarUrl ?? null,
+        isSelf: Boolean(self) && m.authorId === self?.id,
         files: extractSlackFiles(m.raw),
         reactions: groupReactions(m.reactions, self?.id),
       }))}

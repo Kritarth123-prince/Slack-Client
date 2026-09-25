@@ -2,14 +2,41 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { avatarGradient, initials } from "@/lib/ui/avatar";
 
 export interface ConversationListItem {
   id: string;
   label: string;
   unread: boolean;
+  type: "PUBLIC_CHANNEL" | "PRIVATE_CHANNEL" | "DM" | "GROUP_DM";
+  avatarUrl: string | null;
 }
 
 const POLL_INTERVAL_MS = 15000;
+
+function ConversationAvatar({ item }: { item: ConversationListItem }) {
+  const isChannel = item.type === "PUBLIC_CHANNEL" || item.type === "PRIVATE_CHANNEL";
+
+  if (item.avatarUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- external Slack CDN URL, not a local/static asset
+      <img
+        src={item.avatarUrl}
+        alt=""
+        className="h-10 w-10 shrink-0 rounded-xl object-cover shadow-sm"
+      />
+    );
+  }
+
+  return (
+    <div
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold text-white"
+      style={{ backgroundImage: avatarGradient(item.id) }}
+    >
+      {isChannel ? "#" : initials(item.label)}
+    </div>
+  );
+}
 
 export function ConversationList({ initial }: { initial: ConversationListItem[] }) {
   const [items, setItems] = useState<ConversationListItem[]>(initial);
@@ -46,17 +73,29 @@ export function ConversationList({ initial }: { initial: ConversationListItem[] 
   }
 
   return (
-    <ul className="flex flex-col gap-1">
+    <ul className="flex flex-col gap-2">
       {items.map((c) => (
         <li key={c.id}>
           <Link
             href={`/app/${c.id}`}
-            className={`flex items-center justify-between gap-3 rounded-lg border border-black/[.08] px-4 py-3 hover:bg-black/[.03] dark:border-white/[.145] dark:hover:bg-white/[.03] ${
-              c.unread ? "font-semibold text-black dark:text-zinc-50" : "text-zinc-700 dark:text-zinc-300"
+            className={`card-surface group flex items-center gap-3 rounded-2xl px-4 py-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+              c.unread ? "ring-1 ring-inset ring-[color-mix(in_srgb,var(--brand-from)_35%,transparent)]" : ""
             }`}
           >
-            <span>{c.label}</span>
-            {c.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-label="Unread" />}
+            <ConversationAvatar item={c} />
+            <span
+              className={`flex-1 truncate ${
+                c.unread ? "font-semibold text-black dark:text-zinc-50" : "text-zinc-700 dark:text-zinc-300"
+              }`}
+            >
+              {c.label}
+            </span>
+            {c.unread && (
+              <span
+                className="btn-primary h-2.5 w-2.5 shrink-0 rounded-full"
+                aria-label="Unread"
+              />
+            )}
           </Link>
         </li>
       ))}

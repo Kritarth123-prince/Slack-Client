@@ -62,14 +62,14 @@ export function NotificationSetup() {
   if (status === "checking" || status === "unsupported" || status === "enabled") return null;
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]">
+    <div className="card-surface flex items-center gap-3 rounded-2xl px-4 py-3">
+      <span className="text-lg" aria-hidden>
+        🔔
+      </span>
       <p className="flex-1 text-sm text-zinc-600 dark:text-zinc-400">
         Enable notifications to hear about new messages even when this tab is closed.
       </p>
-      <button
-        onClick={enable}
-        className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background"
-      >
+      <button onClick={enable} className="btn-primary rounded-full px-4 py-2 text-sm font-semibold text-white">
         Enable
       </button>
       {error && <p className="text-sm text-red-500">{error}</p>}
