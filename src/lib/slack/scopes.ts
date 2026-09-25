@@ -31,6 +31,9 @@ export const SLACK_USER_SCOPES = [
   "users:read",
   "users.profile:read",
 
+  // Download files/images attached to messages.
+  "files:read",
+
   // Search messages the user has access to.
   "search:read",
 

@@ -1,8 +1,10 @@
 import type { WebClient } from "@slack/web-api";
-import { ConversationType, type Conversation, type Prisma } from "@prisma/client";
+import { ConversationType, type Conversation, type Message, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { getSlackClientForUser } from "@/lib/slack/client";
 import type { SlackEventEnvelope } from "@/lib/slack/events";
+import { sendPushToUser } from "@/lib/push";
+import { logger } from "@/lib/logger";
 
 type SlackEvent = NonNullable<SlackEventEnvelope["event"]>;
 
@@ -91,6 +93,45 @@ function tsToDate(slackTs: string): Date {
   return new Date(Number(slackTs.split(".")[0]) * 1000);
 }
 
+/**
+ * Caches every workspace member in one paginated sweep. Called once per conversation-list load so
+ * that resolving message authors/mentions later is a DB read instead of one Slack API call per
+ * distinct person — that per-person lookup was the main cause of very slow first-open chat loads.
+ */
+async function syncWorkspaceUsers(workspaceId: string, client: WebClient): Promise<void> {
+  let cursor: string | undefined;
+  do {
+    const res = await client.users.list({ limit: 200, cursor }).catch(() => null);
+    if (!res) return;
+
+    for (const member of res.members ?? []) {
+      if (!member.id) continue;
+      const displayName = member.profile?.display_name || member.real_name || member.id;
+      await prisma.slackUser.upsert({
+        where: { workspaceId_slackUserId: { workspaceId, slackUserId: member.id } },
+        update: {
+          displayName,
+          realName: member.real_name ?? null,
+          avatarUrl: member.profile?.image_192 ?? null,
+          isBot: member.is_bot ?? false,
+          deleted: member.deleted ?? false,
+        },
+        create: {
+          workspaceId,
+          slackUserId: member.id,
+          displayName,
+          realName: member.real_name ?? null,
+          avatarUrl: member.profile?.image_192 ?? null,
+          isBot: member.is_bot ?? false,
+          deleted: member.deleted ?? false,
+        },
+      });
+    }
+
+    cursor = res.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+}
+
 async function fetchConversationMemberIds(client: WebClient, slackConversationId: string): Promise<string[]> {
   const memberIds: string[] = [];
   let cursor: string | undefined;
@@ -107,6 +148,15 @@ async function upsertConversationMember(conversationId: string, slackUserRowId: 
     where: { conversationId_slackUserId: { conversationId, slackUserId: slackUserRowId } },
     update: {},
     create: { conversationId, slackUserId: slackUserRowId },
+  });
+}
+
+/** Records that the user has seen messages up to this point, clearing the unread indicator. */
+export async function markConversationRead(userId: string, conversationId: string, lastReadTs: string): Promise<void> {
+  await prisma.readState.upsert({
+    where: { userId_conversationId: { userId, conversationId } },
+    update: { lastReadTs },
+    create: { userId, conversationId, lastReadTs },
   });
 }
 
@@ -130,6 +180,9 @@ export async function syncConversationsForUser(userId: string): Promise<void> {
   if (!installation) return;
 
   const client = await getSlackClientForUser(userId);
+  await syncWorkspaceUsers(installation.workspaceId, client).catch((err) =>
+    logger.error("Failed to bulk-sync workspace users", { message: (err as Error).message })
+  );
 
   let cursor: string | undefined;
   do {
@@ -145,6 +198,22 @@ export async function syncConversationsForUser(userId: string): Promise<void> {
 
       const conversation = await upsertConversation(installation.workspaceId, channel);
       if (!conversation) continue;
+
+      // conversations.list doesn't report last-activity time, so the first time we see a
+      // conversation, pull its latest message once to seed real ordering (later kept fresh by
+      // the events webhook). Skipped on repeat syncs so this doesn't cost an API call every time.
+      if (!conversation.lastMessageTs) {
+        const latest = await client.conversations
+          .history({ channel: conversation.slackConversationId, limit: 1 })
+          .catch(() => null);
+        const latestTs = latest?.messages?.[0]?.ts;
+        if (latestTs) {
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: { lastMessageAt: tsToDate(latestTs), lastMessageTs: latestTs },
+          });
+        }
+      }
 
       // DMs/group DMs have no channel name, so we need their members to build a display label.
       if (channel.is_im && channel.user) {
@@ -203,7 +272,7 @@ export async function syncMessages(userId: string, conversation: Conversation, l
   if (latestTs) {
     await prisma.conversation.update({
       where: { id: conversation.id },
-      data: { lastMessageAt: tsToDate(latestTs) },
+      data: { lastMessageAt: tsToDate(latestTs), lastMessageTs: latestTs },
     });
   }
 }
@@ -247,8 +316,53 @@ export async function postMessage(
 
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { lastMessageAt: tsToDate(res.ts) },
+    data: { lastMessageAt: tsToDate(res.ts), lastMessageTs: res.ts },
   });
+}
+
+/** Adds an emoji reaction as the authorizing user, then reflects it locally without waiting on the webhook. */
+export async function addReaction(
+  userId: string,
+  conversation: Conversation,
+  message: Message,
+  emoji: string
+): Promise<void> {
+  const installation = await prisma.slackInstallation.findFirst({
+    where: { userId, revokedAt: null },
+    orderBy: { installedAt: "desc" },
+  });
+  if (!installation) throw new Error("No active Slack installation for user");
+
+  const client = await getSlackClientForUser(userId);
+  await client.reactions.add({ channel: conversation.slackConversationId, timestamp: message.slackTs, name: emoji });
+
+  const self = await upsertWorkspaceUser(conversation.workspaceId, client, installation.slackUserId);
+  await prisma.reaction.upsert({
+    where: { messageId_emoji_slackUserId: { messageId: message.id, emoji, slackUserId: self.id } },
+    update: {},
+    create: { messageId: message.id, emoji, slackUserId: self.id },
+  });
+}
+
+export async function removeReaction(
+  userId: string,
+  conversation: Conversation,
+  message: Message,
+  emoji: string
+): Promise<void> {
+  const installation = await prisma.slackInstallation.findFirst({
+    where: { userId, revokedAt: null },
+    orderBy: { installedAt: "desc" },
+  });
+  if (!installation) throw new Error("No active Slack installation for user");
+
+  const client = await getSlackClientForUser(userId);
+  await client.reactions
+    .remove({ channel: conversation.slackConversationId, timestamp: message.slackTs, name: emoji })
+    .catch(() => {});
+
+  const self = await upsertWorkspaceUser(conversation.workspaceId, client, installation.slackUserId);
+  await prisma.reaction.deleteMany({ where: { messageId: message.id, emoji, slackUserId: self.id } });
 }
 
 /** Applies an incoming Events API callback to the DB. */
@@ -269,13 +383,21 @@ export async function processSlackEvent(envelope: SlackEventEnvelope): Promise<v
   const client = await getSlackClientForUser(installation.userId);
 
   if (event.type === "message") {
-    await handleMessageEvent(workspace.id, client, event);
+    await handleMessageEvent(workspace.id, client, event, {
+      userId: installation.userId,
+      selfSlackUserId: installation.slackUserId,
+    });
   } else if (event.type === "reaction_added" || event.type === "reaction_removed") {
     await handleReactionEvent(workspace.id, client, event, event.type === "reaction_added");
   }
 }
 
-async function handleMessageEvent(workspaceId: string, client: WebClient, event: SlackEvent): Promise<void> {
+async function handleMessageEvent(
+  workspaceId: string,
+  client: WebClient,
+  event: SlackEvent,
+  notify: { userId: string; selfSlackUserId: string }
+): Promise<void> {
   if (!event.channel) return;
 
   let conversation = await prisma.conversation.findUnique({
@@ -306,14 +428,18 @@ async function handleMessageEvent(workspaceId: string, client: WebClient, event:
 
   const authorSlackId = nested?.user ?? event.user;
   let authorId: string | null = null;
+  let authorName: string | undefined;
   if (authorSlackId) {
     const author = await upsertWorkspaceUser(workspaceId, client, authorSlackId);
     authorId = author.id;
+    authorName = author.displayName;
   }
 
   const text = nested?.text ?? event.text ?? "";
   const threadTs = nested?.thread_ts ?? event.thread_ts ?? ts;
   if (text) await resolveMentionedUsers(workspaceId, client, text);
+
+  const isNewMessage = event.subtype !== "message_changed";
 
   await prisma.message.upsert({
     where: { conversationId_slackTs: { conversationId: conversation.id, slackTs: ts } },
@@ -334,8 +460,16 @@ async function handleMessageEvent(workspaceId: string, client: WebClient, event:
 
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { lastMessageAt: tsToDate(ts) },
+    data: { lastMessageAt: tsToDate(ts), lastMessageTs: ts },
   });
+
+  if (isNewMessage && authorSlackId && authorSlackId !== notify.selfSlackUserId) {
+    await sendPushToUser(notify.userId, {
+      title: authorName ?? "New message",
+      body: text || "Sent an attachment",
+      url: `/app/${conversation.id}`,
+    }).catch((err) => logger.error("Failed to send push notification", { message: (err as Error).message }));
+  }
 }
 
 async function handleReactionEvent(

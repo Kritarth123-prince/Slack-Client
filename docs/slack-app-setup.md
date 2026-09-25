@@ -39,6 +39,7 @@ Under **OAuth & Permissions**:
 | `reactions:write` | Add/remove your emoji reactions |
 | `users:read` | Resolve user IDs to names/avatars |
 | `users.profile:read` | Read profile details for display |
+| `files:read` | Download files/images attached to messages |
 | `search:read` | Power the in-app search screen |
 | `team:read` | Show workspace name/icon in the UI |
 

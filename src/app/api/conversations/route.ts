@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { syncConversationsForUser } from "@/lib/slack/sync";
+import { conversationLabel } from "@/lib/slack/conversationLabel";
 import { logger } from "@/lib/logger";
 
 export async function GET() {
@@ -15,15 +15,26 @@ export async function GET() {
   if (!installation) return NextResponse.json({ error: "not_connected" }, { status: 409 });
 
   try {
-    await syncConversationsForUser(userId);
+    const conversations = await prisma.conversation.findMany({
+      where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
+      orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }],
+      include: { members: { include: { slackUser: true } } },
+    });
+
+    const readStates = await prisma.readState.findMany({
+      where: { userId, conversationId: { in: conversations.map((c) => c.id) } },
+    });
+    const readMap = new Map(readStates.map((r) => [r.conversationId, r.lastReadTs]));
+
+    const result = conversations.map((c) => {
+      const lastRead = readMap.get(c.id);
+      const unread = Boolean(c.lastMessageTs) && (!lastRead || lastRead < c.lastMessageTs!);
+      return { id: c.id, label: conversationLabel(c, installation.slackUserId), unread };
+    });
+
+    return NextResponse.json({ conversations: result });
   } catch (err) {
-    logger.error("Failed to sync conversations", { message: (err as Error).message });
+    logger.error("Failed to list conversations", { message: (err as Error).message });
+    return NextResponse.json({ error: "failed" }, { status: 500 });
   }
-
-  const conversations = await prisma.conversation.findMany({
-    where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
-    orderBy: [{ lastMessageAt: "desc" }],
-  });
-
-  return NextResponse.json({ conversations });
 }

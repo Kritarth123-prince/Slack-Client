@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { syncConversationsForUser } from "@/lib/slack/sync";
 import { conversationLabel } from "@/lib/slack/conversationLabel";
+import { ConversationList } from "./ConversationList";
+import { NotificationSetup } from "./NotificationSetup";
 
 export default async function AppHome() {
   const userId = await requireUserId();
@@ -19,32 +20,26 @@ export default async function AppHome() {
 
   const conversations = await prisma.conversation.findMany({
     where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
-    orderBy: [{ lastMessageAt: "desc" }],
+    orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }],
     include: { members: { include: { slackUser: true } } },
+  });
+
+  const readStates = await prisma.readState.findMany({
+    where: { userId, conversationId: { in: conversations.map((c) => c.id) } },
+  });
+  const readMap = new Map(readStates.map((r) => [r.conversationId, r.lastReadTs]));
+
+  const items = conversations.map((c) => {
+    const lastRead = readMap.get(c.id);
+    const unread = Boolean(c.lastMessageTs) && (!lastRead || lastRead < c.lastMessageTs!);
+    return { id: c.id, label: conversationLabel(c, installation.slackUserId), unread };
   });
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
       <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Conversations</h1>
-
-      {conversations.length === 0 && (
-        <p className="text-zinc-500 dark:text-zinc-400">
-          No conversations found yet. Make sure you&apos;re a member of at least one channel or DM in Slack.
-        </p>
-      )}
-
-      <ul className="flex flex-col gap-1">
-        {conversations.map((conversation) => (
-          <li key={conversation.id}>
-            <Link
-              href={`/app/${conversation.id}`}
-              className="block rounded-lg border border-black/[.08] px-4 py-3 hover:bg-black/[.03] dark:border-white/[.145] dark:hover:bg-white/[.03]"
-            >
-              {conversationLabel(conversation, installation.slackUserId)}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <NotificationSetup />
+      <ConversationList initial={items} />
     </div>
   );
 }
