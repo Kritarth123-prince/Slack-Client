@@ -24,12 +24,9 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
   });
   if (!installation) redirect("/");
 
-  // Only pull history from Slack the first time we open a conversation — after that the events
-  // webhook (and our own sends) keep the DB current, so repeat visits render instantly from it.
-  const hasCachedMessages = (await prisma.message.count({ where: { conversationId: conversation.id } })) > 0;
-  if (!hasCachedMessages) {
-    await syncMessages(userId, conversation).catch(() => {});
-  }
+  // Pulls anything newer than what's cached (cheap once caught up) so opening a conversation
+  // always shows up-to-date messages even if the Events API webhook isn't reaching this deployment.
+  await syncMessages(userId, conversation).catch(() => {});
 
   const self = await prisma.slackUser.findUnique({
     where: {

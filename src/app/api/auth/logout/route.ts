@@ -4,5 +4,5 @@ import { getEnv } from "@/lib/env";
 
 export async function POST() {
   await destroySession();
-  return NextResponse.redirect(`${getEnv().APP_BASE_URL}/login`);
+  return NextResponse.redirect(`${getEnv().APP_BASE_URL}/`);
 }

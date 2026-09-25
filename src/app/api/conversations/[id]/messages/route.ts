@@ -14,16 +14,13 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const conversation = await prisma.conversation.findUnique({ where: { id } });
   if (!conversation) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  // Only pull history from Slack the first time — after that the events webhook (and our own
-  // sends) keep the DB current, so this refresh call (used after posting, and on manual reload)
-  // renders instantly from the DB instead of re-fetching from Slack every time.
-  const hasCachedMessages = (await prisma.message.count({ where: { conversationId: conversation.id } })) > 0;
-  if (!hasCachedMessages) {
-    try {
-      await syncMessages(userId, conversation);
-    } catch (err) {
-      logger.error("Failed to sync messages", { message: (err as Error).message });
-    }
+  // Pull anything newer than what's cached on every call (cheap once caught up, since it only
+  // asks Slack for messages after the latest cached one). This is what this polling call relies
+  // on to surface new messages even when the Events API webhook isn't reaching this deployment.
+  try {
+    await syncMessages(userId, conversation);
+  } catch (err) {
+    logger.error("Failed to sync messages", { message: (err as Error).message });
   }
 
   const installation = await prisma.slackInstallation.findFirst({

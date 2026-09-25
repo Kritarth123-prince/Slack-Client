@@ -25,12 +25,14 @@ export default async function Home() {
             >
               Open messages
             </Link>
-            <a
-              href="/api/auth/logout"
-              className="text-sm text-zinc-500 underline decoration-zinc-300 underline-offset-4 hover:text-zinc-700 dark:text-zinc-400 dark:decoration-zinc-700 dark:hover:text-zinc-200"
-            >
-              Log out
-            </a>
+            <form action="/api/auth/logout" method="POST">
+              <button
+                type="submit"
+                className="text-sm text-zinc-500 underline decoration-zinc-300 underline-offset-4 hover:text-zinc-700 dark:text-zinc-400 dark:decoration-zinc-700 dark:hover:text-zinc-200"
+              >
+                Log out
+              </button>
+            </form>
           </>
         ) : (
           <>

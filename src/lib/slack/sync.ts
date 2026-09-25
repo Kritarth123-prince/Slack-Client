@@ -233,12 +233,26 @@ export async function syncConversationsForUser(userId: string): Promise<void> {
   } while (cursor);
 }
 
-/** Fetches recent history for a conversation and upserts it into the DB. */
+/**
+ * Fetches history for a conversation and upserts it into the DB. When messages are already
+ * cached, only fetches what's newer than the latest cached message (via `oldest`) instead of
+ * re-pulling the last `limit` every time — this is what keeps new messages appearing even when
+ * the Events API webhook isn't reaching this deployment (e.g. a stale/misconfigured Request URL,
+ * or the platform blocking the callback before it reaches our handler).
+ */
 export async function syncMessages(userId: string, conversation: Conversation, limit = 50): Promise<void> {
   const client = await getSlackClientForUser(userId);
+
+  const latestCached = await prisma.message.findFirst({
+    where: { conversationId: conversation.id },
+    orderBy: { slackTs: "desc" },
+    select: { slackTs: true },
+  });
+
   const res = await client.conversations.history({
     channel: conversation.slackConversationId,
     limit,
+    ...(latestCached ? { oldest: latestCached.slackTs } : {}),
   });
 
   for (const msg of res.messages ?? []) {
