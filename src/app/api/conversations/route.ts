@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { conversationLabel, conversationAvatarUrl } from "@/lib/slack/conversationLabel";
+import { syncAllConversationsAndNotify } from "@/lib/slack/sync";
 import { logger } from "@/lib/logger";
 
 export async function GET() {
@@ -13,6 +14,13 @@ export async function GET() {
     orderBy: { installedAt: "desc" },
   });
   if (!installation) return NextResponse.json({ error: "not_connected" }, { status: 409 });
+
+  // Catches up every conversation (and pushes a notification for new messages) so unread
+  // highlighting and notifications work even when the Events API webhook isn't reaching this
+  // deployment — see syncAllConversationsAndNotify.
+  await syncAllConversationsAndNotify(userId).catch((err) =>
+    logger.error("Failed to sync conversations for list refresh", { message: (err as Error).message })
+  );
 
   try {
     const conversations = await prisma.conversation.findMany({

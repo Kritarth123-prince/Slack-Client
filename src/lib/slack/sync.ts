@@ -240,7 +240,7 @@ export async function syncConversationsForUser(userId: string): Promise<void> {
  * the Events API webhook isn't reaching this deployment (e.g. a stale/misconfigured Request URL,
  * or the platform blocking the callback before it reaches our handler).
  */
-export async function syncMessages(userId: string, conversation: Conversation, limit = 50): Promise<void> {
+export async function syncMessages(userId: string, conversation: Conversation, limit = 50): Promise<Message[]> {
   const client = await getSlackClientForUser(userId);
 
   const latestCached = await prisma.message.findFirst({
@@ -255,6 +255,11 @@ export async function syncMessages(userId: string, conversation: Conversation, l
     ...(latestCached ? { oldest: latestCached.slackTs } : {}),
   });
 
+  // Only meaningful when `latestCached` was set: every message returned here is strictly newer
+  // than what we already had, so (unlike the very first backfill, where everything is "new" but
+  // none of it should trigger a notification) these are genuine new arrivals.
+  const newlyArrived: Message[] = [];
+
   for (const msg of res.messages ?? []) {
     if (!msg.ts) continue;
 
@@ -265,7 +270,7 @@ export async function syncMessages(userId: string, conversation: Conversation, l
     }
     if (msg.text) await resolveMentionedUsers(conversation.workspaceId, client, msg.text);
 
-    await prisma.message.upsert({
+    const row = await prisma.message.upsert({
       where: { conversationId_slackTs: { conversationId: conversation.id, slackTs: msg.ts } },
       update: {
         text: msg.text ?? "",
@@ -280,6 +285,8 @@ export async function syncMessages(userId: string, conversation: Conversation, l
         raw: msg as Prisma.InputJsonValue,
       },
     });
+
+    if (latestCached) newlyArrived.push(row);
   }
 
   const latestTs = res.messages?.[0]?.ts;
@@ -288,6 +295,54 @@ export async function syncMessages(userId: string, conversation: Conversation, l
       where: { id: conversation.id },
       data: { lastMessageAt: tsToDate(latestTs), lastMessageTs: latestTs },
     });
+  }
+
+  return newlyArrived;
+}
+
+/**
+ * Catches up every conversation for a user and pushes a notification for each genuinely new
+ * message from someone else. This is the polling-based stand-in for the Events API webhook path
+ * (which also notifies, in `handleMessageEvent`) — it's what lets unread highlighting and
+ * notifications work even when the webhook isn't reaching this deployment.
+ */
+export async function syncAllConversationsAndNotify(userId: string): Promise<void> {
+  const installation = await prisma.slackInstallation.findFirst({
+    where: { userId, revokedAt: null },
+    orderBy: { installedAt: "desc" },
+  });
+  if (!installation) return;
+
+  const [conversations, self] = await Promise.all([
+    prisma.conversation.findMany({
+      where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
+    }),
+    prisma.slackUser.findUnique({
+      where: {
+        workspaceId_slackUserId: { workspaceId: installation.workspaceId, slackUserId: installation.slackUserId },
+      },
+    }),
+  ]);
+
+  for (const conversation of conversations) {
+    let newMessages: Message[];
+    try {
+      newMessages = await syncMessages(userId, conversation, 20);
+    } catch (err) {
+      logger.error("Failed to sync conversation during list refresh", { message: (err as Error).message });
+      continue;
+    }
+
+    for (const msg of newMessages) {
+      if (!msg.authorId || msg.authorId === self?.id) continue;
+
+      const author = await prisma.slackUser.findUnique({ where: { id: msg.authorId } });
+      await sendPushToUser(userId, {
+        title: author?.displayName ?? "New message",
+        body: msg.text || "Sent an attachment",
+        url: `/app/${conversation.id}`,
+      }).catch((err) => logger.error("Failed to send push notification", { message: (err as Error).message }));
+    }
   }
 }
 
