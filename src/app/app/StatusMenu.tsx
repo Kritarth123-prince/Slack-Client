@@ -131,9 +131,15 @@ export function StatusMenu() {
       {open && (
         <div className="card-surface absolute right-0 z-20 mt-2 w-72 rounded-2xl p-3 text-sm">
           {status.slackSyncWarning && (
-            <p className="mb-2 rounded-lg bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
-              ⚠️ {status.slackSyncWarning}
-            </p>
+            <div className="mb-2 flex flex-col gap-1.5 rounded-lg bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <p>⚠️ {status.slackSyncWarning}</p>
+              <a
+                href="/api/oauth/slack"
+                className="self-start rounded-full bg-amber-500/20 px-2 py-1 font-semibold hover:bg-amber-500/30"
+              >
+                Reconnect Slack
+              </a>
+            </div>
           )}
           <div className="flex gap-2">
             <button

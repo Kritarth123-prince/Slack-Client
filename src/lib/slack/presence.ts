@@ -78,7 +78,7 @@ async function syncDndToSlack(userId: string, enabled: boolean): Promise<SyncRes
 
 function summarizeSyncResults(results: SyncResult[]): string | null {
   if (results.includes("missing_scope")) {
-    return "Couldn't sync to Slack — reconnect your Slack account (Settings → Connect Slack) to grant the new permissions this needs.";
+    return "Couldn't sync to Slack — your connection is missing a new permission this needs. Tap “Reconnect Slack” below to grant it.";
   }
   if (results.includes("error")) {
     return "Couldn't sync to Slack right now — it may catch up on the next update.";
