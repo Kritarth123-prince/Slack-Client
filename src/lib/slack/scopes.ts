@@ -27,6 +27,9 @@ export const SLACK_USER_SCOPES = [
   "reactions:read",
   "reactions:write",
 
+  // Pin/unpin messages from within the app.
+  "pins:write",
+
   // Resolve member IDs to profile info (name, avatar) for display.
   "users:read",
   "users.profile:read",

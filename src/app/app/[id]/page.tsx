@@ -37,15 +37,17 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
     },
   });
 
-  const [messages, workspaceUsers] = await Promise.all([
+  const [messages, workspaceUsers, savedMessageIds] = await Promise.all([
     prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { slackTs: "asc" },
-      include: { author: true, reactions: true },
+      include: { author: true, reactions: true, forwardedFrom: { include: { author: true } } },
     }),
     prisma.slackUser.findMany({ where: { workspaceId: conversation.workspaceId } }),
+    prisma.savedMessage.findMany({ where: { userId }, select: { messageId: true } }),
   ]);
 
+  const savedSet = new Set(savedMessageIds.map((s) => s.messageId));
   const userNames = Object.fromEntries(workspaceUsers.map((u) => [u.slackUserId, u.displayName]));
 
   const lastTs = messages[messages.length - 1]?.slackTs;
@@ -57,12 +59,20 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
       title={conversationLabel(conversation, installation.slackUserId)}
       initialMessages={messages.map((m) => ({
         id: m.id,
+        slackTs: m.slackTs,
+        threadTs: m.threadTs,
         text: m.text,
         createdAt: m.createdAt.toISOString(),
         authorName: m.author?.displayName ?? "Unknown",
         authorAvatarUrl: m.author?.avatarUrl ?? null,
         isSelf: Boolean(self) && m.authorId === self?.id,
+        isEdited: m.isEdited,
         isDeleted: m.deletedAt !== null,
+        pinned: m.pinned,
+        savedByMe: savedSet.has(m.id),
+        forwardedFrom: m.forwardedFrom
+          ? { authorName: m.forwardedFrom.author?.displayName ?? "Unknown", text: m.forwardedFrom.text }
+          : null,
         files: extractSlackFiles(m.raw),
         reactions: groupReactions(m.reactions, self?.id),
       }))}

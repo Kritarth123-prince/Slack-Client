@@ -22,6 +22,7 @@ model User {
   notificationSubscriptions NotificationSubscription[]
   readStates              ReadState[]
   sessions                Session[]
+  savedMessages           SavedMessage[]
 }
 
 // Server-side session record backing the HttpOnly session cookie.
@@ -170,6 +171,16 @@ model Message {
   text      String
   isEdited  Boolean  @default(false)
   deletedAt DateTime?
+  pinned    Boolean  @default(false)
+  pinnedAt  DateTime?
+
+  // Set when this message was created by forwarding another message. Kept as a nullable
+  // self-relation (rather than a denormalized copy) so the forwarded card can always show the
+  // original's current author/text; the original clears the pointer rather than erroring if it's
+  // later deleted.
+  forwardedFromId String?
+  forwardedFrom   Message?  @relation("MessageForward", fields: [forwardedFromId], references: [id], onDelete: SetNull)
+  forwards        Message[] @relation("MessageForward")
 
   raw Json // full Slack message payload, for fields we don't model explicitly (files, blocks, attachments)
 
@@ -177,10 +188,25 @@ model Message {
   updatedAt DateTime @updatedAt
 
   reactions Reaction[]
+  savedBy   SavedMessage[]
 
   @@unique([conversationId, slackTs])
   @@index([conversationId, threadTs])
   @@index([conversationId, createdAt])
+}
+
+// A user's personal "save for later" bookmark on a message. Per-user (not shared), so it's a
+// join table rather than a flag on Message.
+model SavedMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId])
+  @@index([userId])
 }
 
 model Reaction {

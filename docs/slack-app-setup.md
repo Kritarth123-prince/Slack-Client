@@ -37,6 +37,7 @@ Under **OAuth & Permissions**:
 | `chat:write` | Send messages and thread replies as you |
 | `reactions:read` | See existing emoji reactions |
 | `reactions:write` | Add/remove your emoji reactions |
+| `pins:write` | Pin/unpin messages from within the app |
 | `users:read` | Resolve user IDs to names/avatars |
 | `users.profile:read` | Read profile details for display |
 | `files:read` | Download files/images attached to messages |

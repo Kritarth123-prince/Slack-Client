@@ -320,6 +320,106 @@ export async function postMessage(
   });
 }
 
+/** Edits a message the authorizing user sent, then reflects the new text locally. */
+export async function editMessage(
+  userId: string,
+  conversation: Conversation,
+  message: Message,
+  text: string
+): Promise<void> {
+  const client = await getSlackClientForUser(userId);
+  await client.chat.update({ channel: conversation.slackConversationId, ts: message.slackTs, text });
+  await resolveMentionedUsers(conversation.workspaceId, client, text);
+
+  await prisma.message.update({
+    where: { id: message.id },
+    data: { text, isEdited: true },
+  });
+}
+
+/** Deletes a message the authorizing user sent (soft-deletes locally, mirroring the webhook path). */
+export async function deleteMessage(userId: string, conversation: Conversation, message: Message): Promise<void> {
+  const client = await getSlackClientForUser(userId);
+  await client.chat.delete({ channel: conversation.slackConversationId, ts: message.slackTs });
+
+  await prisma.message.update({
+    where: { id: message.id },
+    data: { deletedAt: new Date() },
+  });
+}
+
+/**
+ * Pins/unpins a message. The Slack call is best-effort: `pins:write` may not be granted on
+ * installations from before this feature shipped, so a missing-scope failure still lets the
+ * local pin state (this app's own "pinned" list) apply instead of blocking the action outright.
+ */
+export async function setMessagePinned(
+  userId: string,
+  conversation: Conversation,
+  message: Message,
+  pinned: boolean
+): Promise<void> {
+  try {
+    const client = await getSlackClientForUser(userId);
+    if (pinned) {
+      await client.pins.add({ channel: conversation.slackConversationId, timestamp: message.slackTs });
+    } else {
+      await client.pins.remove({ channel: conversation.slackConversationId, timestamp: message.slackTs });
+    }
+  } catch (err) {
+    const code = (err as { data?: { error?: string } }).data?.error;
+    if (code !== "missing_scope" && code !== "already_pinned" && code !== "not_pinned") {
+      logger.error("Failed to sync pin state to Slack", { message: (err as Error).message });
+    }
+  }
+
+  await prisma.message.update({
+    where: { id: message.id },
+    data: { pinned, pinnedAt: pinned ? new Date() : null },
+  });
+}
+
+/** Forwards a message's text (and files, via the raw payload) into another conversation as a new message. */
+export async function forwardMessage(
+  userId: string,
+  targetConversation: Conversation,
+  originalMessage: Message
+): Promise<void> {
+  const installation = await prisma.slackInstallation.findFirst({
+    where: { userId, revokedAt: null },
+    orderBy: { installedAt: "desc" },
+  });
+  if (!installation) throw new Error("No active Slack installation for user");
+
+  const client = await getSlackClientForUser(userId);
+  const res = await client.chat.postMessage({
+    channel: targetConversation.slackConversationId,
+    text: originalMessage.text,
+  });
+  if (!res.ts) throw new Error("Slack did not return a timestamp for the forwarded message");
+
+  const author = await upsertWorkspaceUser(targetConversation.workspaceId, client, installation.slackUserId);
+
+  await prisma.message.upsert({
+    where: { conversationId_slackTs: { conversationId: targetConversation.id, slackTs: res.ts } },
+    update: {},
+    create: {
+      conversationId: targetConversation.id,
+      slackTs: res.ts,
+      threadTs: res.ts,
+      authorId: author.id,
+      text: originalMessage.text,
+      forwardedFromId: originalMessage.id,
+      raw: (res.message ?? {}) as Prisma.InputJsonValue,
+    },
+  });
+
+  await prisma.conversation.update({
+    where: { id: targetConversation.id },
+    data: { lastMessageAt: tsToDate(res.ts), lastMessageTs: res.ts },
+  });
+}
+
 /** Adds an emoji reaction as the authorizing user, then reflects it locally without waiting on the webhook. */
 export async function addReaction(
   userId: string,
