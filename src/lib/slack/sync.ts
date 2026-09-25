@@ -300,6 +300,15 @@ export async function syncMessages(userId: string, conversation: Conversation, l
   return newlyArrived;
 }
 
+// A real workspace typically has far more channels than DMs, and each conversation costs a
+// sequential Slack API call here — without a bound, a large channel list can make this take long
+// enough to hit the platform's request timeout, silently dropping the unread/notify update for
+// every conversation that never gets its turn (channels most often, since a typical workspace has
+// many more of them than DMs). SYNC_BUDGET_MS keeps this call fast and predictable regardless of
+// workspace size; MAX_CONVERSATIONS_PER_SYNC is a hard backstop under pathological conversation counts.
+const SYNC_BUDGET_MS = 8000;
+const MAX_CONVERSATIONS_PER_SYNC = 60;
+
 /**
  * Catches up every conversation for a user and pushes a notification for each genuinely new
  * message from someone else. This is the polling-based stand-in for the Events API webhook path
@@ -316,6 +325,10 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
   const [conversations, self] = await Promise.all([
     prisma.conversation.findMany({
       where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
+      // Most-recently-active first, so a large channel list degrades gracefully: whatever gets
+      // cut off by the time/count budget below is whatever mattered least right now.
+      orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }],
+      take: MAX_CONVERSATIONS_PER_SYNC,
     }),
     prisma.slackUser.findUnique({
       where: {
@@ -324,7 +337,16 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
     }),
   ]);
 
+  const startedAt = Date.now();
+
   for (const conversation of conversations) {
+    if (Date.now() - startedAt > SYNC_BUDGET_MS) {
+      logger.warn("Stopped conversation sync early to stay within the time budget", {
+        remaining: conversations.length,
+      });
+      break;
+    }
+
     let newMessages: Message[];
     try {
       newMessages = await syncMessages(userId, conversation, 20);

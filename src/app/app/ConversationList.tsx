@@ -56,11 +56,22 @@ export function ConversationList({ initial }: { initial: ConversationListItem[] 
     // Refresh immediately on mount (e.g. returning here after reading a thread) instead of
     // only showing the page's initial server-rendered snapshot until the next poll tick.
     load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, POLL_INTERVAL_MS);
+
+    // Mobile browsers throttle timers heavily once the tab/app is backgrounded, so also refresh
+    // the instant it becomes visible again (e.g. unlocking the phone back into this tab) instead
+    // of waiting for the next tick — this is what keeps unread highlighting feeling real-time.
+    function onVisible() {
+      if (document.visibilityState === "visible") load();
+    }
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

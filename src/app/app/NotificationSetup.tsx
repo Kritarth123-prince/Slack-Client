@@ -9,14 +9,32 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   return Uint8Array.from([...raw].map((char) => char.charCodeAt(0)));
 }
 
-type Status = "checking" | "unsupported" | "enabled" | "disabled";
+type Status = "checking" | "unsupported" | "ios-not-installed" | "enabled" | "disabled";
 
 function isPushSupported(): boolean {
   return typeof navigator !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
 }
 
+// iOS Safari only exposes the Push API to a site once it's been added to the home screen — in a
+// regular browser tab `PushManager` simply doesn't exist, so isPushSupported() alone can't tell
+// the difference between "this device can never support push" and "add it to the home screen
+// first". Distinguishing the two is what lets us show a useful instruction instead of nothing.
+function isIosNotInstalled(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (!isIos) return false;
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return !standalone;
+}
+
+function initialStatus(): Status {
+  if (isPushSupported()) return "checking";
+  if (isIosNotInstalled()) return "ios-not-installed";
+  return "unsupported";
+}
+
 export function NotificationSetup() {
-  const [status, setStatus] = useState<Status>(() => (isPushSupported() ? "checking" : "unsupported"));
+  const [status, setStatus] = useState<Status>(initialStatus);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -60,6 +78,21 @@ export function NotificationSetup() {
   }
 
   if (status === "checking" || status === "unsupported" || status === "enabled") return null;
+
+  if (status === "ios-not-installed") {
+    return (
+      <div className="card-surface flex items-center gap-3 rounded-2xl px-4 py-3">
+        <span className="text-lg" aria-hidden>
+          📲
+        </span>
+        <p className="flex-1 text-sm text-zinc-600 dark:text-zinc-400">
+          iPhone only allows notifications for apps added to your Home Screen. Tap the Share
+          button in Safari, then &ldquo;Add to Home Screen&rdquo;, and open it from there to
+          enable notifications.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="card-surface flex items-center gap-3 rounded-2xl px-4 py-3">

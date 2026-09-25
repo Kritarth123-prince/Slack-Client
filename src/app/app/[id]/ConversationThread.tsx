@@ -225,12 +225,23 @@ export function ConversationThread({
   }
 
   // The open thread has no live push channel, so it polls like the conversation list already
-  // does — otherwise messages from other people never appear until a manual reload.
+  // does — otherwise messages from other people never appear until a manual reload. Mobile
+  // browsers throttle timers heavily once the tab/app is backgrounded, so also refresh the
+  // instant it becomes visible again rather than waiting for the next tick.
   useEffect(() => {
     const interval = setInterval(() => {
-      refresh().catch(() => {});
+      if (document.visibilityState === "visible") refresh().catch(() => {});
     }, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+
+    function onVisible() {
+      if (document.visibilityState === "visible") refresh().catch(() => {});
+    }
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is stable enough for polling purposes
   }, [conversationId]);
 
@@ -554,7 +565,7 @@ export function ConversationThread({
                 {!m.isDeleted && (
                   <button
                     onClick={() => setMenuFor(menuFor === m.id ? null : m.id)}
-                    className="rounded-full border border-black/[.08] px-2 py-0.5 text-xs text-zinc-500 opacity-0 hover:bg-black/[.03] group-hover:opacity-100 dark:border-white/[.145] dark:hover:bg-white/[.05]"
+                    className="rounded-full border border-black/[.08] px-2 py-0.5 text-xs text-zinc-500 hover:bg-black/[.03] dark:border-white/[.145] dark:hover:bg-white/[.05]"
                     aria-label="More actions"
                   >
                     ⋯
