@@ -39,7 +39,7 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
 
   const [messages, workspaceUsers] = await Promise.all([
     prisma.message.findMany({
-      where: { conversationId: conversation.id, deletedAt: null },
+      where: { conversationId: conversation.id },
       orderBy: { slackTs: "asc" },
       include: { author: true, reactions: true },
     }),
@@ -62,6 +62,7 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
         authorName: m.author?.displayName ?? "Unknown",
         authorAvatarUrl: m.author?.avatarUrl ?? null,
         isSelf: Boolean(self) && m.authorId === self?.id,
+        isDeleted: m.deletedAt !== null,
         files: extractSlackFiles(m.raw),
         reactions: groupReactions(m.reactions, self?.id),
       }))}

@@ -40,7 +40,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const [messages, workspaceUsers] = await Promise.all([
     prisma.message.findMany({
-      where: { conversationId: conversation.id, deletedAt: null },
+      where: { conversationId: conversation.id },
       orderBy: { slackTs: "asc" },
       include: { author: true, reactions: true },
     }),
@@ -55,6 +55,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     createdAt: m.createdAt,
     author: m.author ? { displayName: m.author.displayName, avatarUrl: m.author.avatarUrl } : null,
     isSelf: Boolean(self) && m.authorId === self?.id,
+    isDeleted: m.deletedAt !== null,
     files: extractSlackFiles(m.raw),
     reactions: groupReactions(m.reactions, self?.id),
   }));

@@ -19,6 +19,7 @@ export interface MessageView {
   authorName: string;
   authorAvatarUrl: string | null;
   isSelf: boolean;
+  isDeleted: boolean;
   files: SlackFileView[];
   reactions: ReactionView[];
 }
@@ -34,6 +35,7 @@ interface ApiMessage {
   createdAt: string;
   author: { displayName: string; avatarUrl: string | null } | null;
   isSelf: boolean;
+  isDeleted: boolean;
   files: SlackFileView[];
   reactions: ReactionView[];
 }
@@ -170,6 +172,7 @@ export function ConversationThread({
         authorName: m.author?.displayName ?? "Unknown",
         authorAvatarUrl: m.author?.avatarUrl ?? null,
         isSelf: m.isSelf,
+        isDeleted: m.isDeleted,
         files: m.files,
         reactions: m.reactions,
       }))
@@ -275,17 +278,26 @@ export function ConversationThread({
           <div key={m.id} className={`flex items-end gap-2 ${m.isSelf ? "flex-row-reverse" : ""}`}>
             <Avatar seed={m.authorName} name={m.authorName} avatarUrl={m.authorAvatarUrl} />
             <div className={`flex max-w-[75%] flex-col gap-1 ${m.isSelf ? "items-end" : "items-start"}`}>
-              {!m.isSelf && (
-                <span className="px-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">{m.authorName}</span>
+              {(!m.isSelf || m.isDeleted) && (
+                <div className="flex items-center gap-1.5 px-1">
+                  {!m.isSelf && (
+                    <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{m.authorName}</span>
+                  )}
+                  {m.isDeleted && (
+                    <span className="rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-500">
+                      Deleted
+                    </span>
+                  )}
+                </div>
               )}
 
               {m.text && (
                 <div
-                  className={
+                  className={`${
                     m.isSelf
                       ? "btn-primary rounded-2xl rounded-br-sm px-4 py-2 text-white"
                       : "card-surface rounded-2xl rounded-bl-sm px-4 py-2"
-                  }
+                  } ${m.isDeleted ? "opacity-60" : ""}`}
                 >
                   <SlackText text={m.text} userNames={userNames} />
                 </div>
@@ -317,7 +329,11 @@ export function ConversationThread({
                 </button>
 
                 {pickerFor === m.id && (
-                  <div className="card-surface absolute bottom-full left-0 z-10 mb-1 flex gap-1 rounded-xl p-1">
+                  <div
+                    className={`card-surface absolute bottom-full z-10 mb-1 flex gap-1 rounded-xl p-1 ${
+                      m.isSelf ? "right-0" : "left-0"
+                    }`}
+                  >
                     {QUICK_REACTIONS.map((name) => (
                       <button
                         key={name}
