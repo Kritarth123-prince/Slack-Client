@@ -513,6 +513,30 @@ export async function forwardMessage(
   });
 }
 
+/**
+ * Uploads a file (or a recorded voice note) to Slack as the authorizing user, then resyncs the
+ * conversation so the resulting message (with its file payload) lands in the local cache the same
+ * way any other new message does — simpler and more robust than hand-parsing uploadV2's response.
+ */
+export async function uploadFile(
+  userId: string,
+  conversation: Conversation,
+  file: { data: Buffer; filename: string; threadTs?: string; initialComment?: string }
+): Promise<void> {
+  const client = await getSlackClientForUser(userId);
+  const shared = { file: file.data, filename: file.filename, initial_comment: file.initialComment };
+  // files.uploadV2's types model "posting into a thread" and "posting into a channel" as a
+  // discriminated union (thread_ts is required alongside channel_id, or disallowed entirely) — so
+  // this needs two call sites rather than one object with an optional thread_ts.
+  if (file.threadTs) {
+    await client.files.uploadV2({ channel_id: conversation.slackConversationId, thread_ts: file.threadTs, ...shared });
+  } else {
+    await client.files.uploadV2({ channel_id: conversation.slackConversationId, ...shared });
+  }
+
+  await syncMessages(userId, conversation);
+}
+
 /** Adds an emoji reaction as the authorizing user, then reflects it locally without waiting on the webhook. */
 export async function addReaction(
   userId: string,

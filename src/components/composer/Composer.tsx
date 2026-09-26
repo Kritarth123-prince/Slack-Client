@@ -1,0 +1,259 @@
+"use client";
+
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { Paperclip, Mic, Square, Smile } from "lucide-react";
+import { useDraft } from "@/hooks/useDraft";
+import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { EmojiPicker } from "@/components/composer/EmojiPicker";
+import type { Member } from "@/types/chat";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+export function Composer({
+  conversationId,
+  threadTs,
+  members,
+  ensureMembersLoaded,
+  placeholder = "Message... (type @ to mention someone)",
+  onSent,
+}: {
+  conversationId: string;
+  threadTs?: string;
+  members: Member[];
+  ensureMembersLoaded: () => void;
+  placeholder?: string;
+  onSent: () => void;
+}) {
+  const { text, setText, clear } = useDraft(conversationId, threadTs);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionMap, setMentionMap] = useState<Record<string, string>>({});
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recorder = useAudioRecorder();
+
+  function handleTextChange(e: ChangeEvent<HTMLInputElement>) {
+    const value = e.target.value;
+    setText(value);
+
+    const caret = e.target.selectionStart ?? value.length;
+    const uptoCaret = value.slice(0, caret);
+    const atIndex = uptoCaret.lastIndexOf("@");
+    if (atIndex === -1 || /\s/.test(uptoCaret.slice(atIndex + 1))) {
+      setMentionQuery(null);
+      return;
+    }
+    setMentionQuery(uptoCaret.slice(atIndex + 1));
+    ensureMembersLoaded();
+  }
+
+  function selectMention(member: Member) {
+    const input = inputRef.current;
+    const caret = input?.selectionStart ?? text.length;
+    const uptoCaret = text.slice(0, caret);
+    const atIndex = uptoCaret.lastIndexOf("@");
+    if (atIndex === -1) return;
+
+    const before = text.slice(0, atIndex);
+    const after = text.slice(caret);
+    const inserted = `@${member.displayName} `;
+    setText(before + inserted + after);
+    setMentionMap((prev) => ({ ...prev, [member.displayName]: member.id }));
+    setMentionQuery(null);
+    requestAnimationFrame(() => input?.focus());
+  }
+
+  function insertEmoji(glyph: string) {
+    setEmojiOpen(false);
+    const input = inputRef.current;
+    const caret = input?.selectionStart ?? text.length;
+    setText(text.slice(0, caret) + glyph + text.slice(caret));
+    requestAnimationFrame(() => input?.focus());
+  }
+
+  function resolveMentionsForSend(value: string): string {
+    let result = value;
+    for (const [name, id] of Object.entries(mentionMap)) {
+      result = result.replace(new RegExp(`@${escapeRegExp(name)}\\b`, "g"), `<@${id}>`);
+    }
+    return result;
+  }
+
+  const filteredMembers =
+    mentionQuery === null
+      ? []
+      : members.filter((m) => m.displayName.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6);
+
+  async function uploadFiles(files: File[], initialComment: string) {
+    setSending(true);
+    setError(null);
+    try {
+      for (const [index, file] of files.entries()) {
+        const form = new FormData();
+        form.append("file", file);
+        if (threadTs) form.append("threadTs", threadTs);
+        if (index === 0 && initialComment) form.append("initialComment", initialComment);
+
+        const res = await fetch(`/api/conversations/${conversationId}/files`, { method: "POST", body: form });
+        if (!res.ok) throw new Error("upload failed");
+      }
+      clear();
+      onSent();
+    } catch {
+      setError("Couldn't send that. Try again.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function handleFilePicked(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    uploadFiles(files, text.trim());
+  }
+
+  async function handleMicClick() {
+    if (recorder.isRecording) {
+      const blob = await recorder.stop();
+      if (blob) {
+        const extension = blob.type.includes("mp4") ? "m4a" : "webm";
+        const file = new File([blob], `voice-note-${Date.now()}.${extension}`, { type: blob.type });
+        await uploadFiles([file], text.trim());
+      }
+      return;
+    }
+    await recorder.start();
+  }
+
+  async function handleSend(e: FormEvent) {
+    e.preventDefault();
+    if (!text.trim() || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: resolveMentionsForSend(text), threadTs }),
+      });
+      if (!res.ok) throw new Error("send failed");
+      setMentionMap({});
+      clear();
+      onSent();
+    } catch {
+      setError("Couldn't send that message. Try again.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div>
+      <form onSubmit={handleSend} className="relative flex items-center gap-2">
+        {mentionQuery !== null && filteredMembers.length > 0 && (
+          <ul className="card-surface absolute bottom-full mb-1 w-64 rounded-xl">
+            {filteredMembers.map((m) => (
+              <li key={m.id}>
+                <button
+                  type="button"
+                  onClick={() => selectMention(m)}
+                  className="block w-full px-3 py-2 text-left text-sm first:rounded-t-xl last:rounded-b-xl hover:bg-black/[.04] dark:hover:bg-white/[.05]"
+                >
+                  {m.displayName}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFilePicked}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={sending || recorder.isRecording}
+          aria-label="Attach files"
+          title="Attach files"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/[.06]"
+        >
+          <Paperclip size={18} />
+        </button>
+
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setEmojiOpen((v) => !v)}
+            aria-label="Insert emoji"
+            title="Insert emoji"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          >
+            <Smile size={18} />
+          </button>
+          {emojiOpen && <EmojiPicker onPick={insertEmoji} />}
+        </div>
+
+        {recorder.isRecording ? (
+          <div className="card-surface flex flex-1 items-center gap-2 rounded-full px-4 py-2 text-sm">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+            <span className="text-zinc-600 dark:text-zinc-300">Recording… {formatElapsed(recorder.elapsedMs)}</span>
+            <button type="button" onClick={recorder.cancel} className="ml-auto text-xs text-zinc-500 dark:text-zinc-400">
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <input
+            ref={inputRef}
+            value={text}
+            onChange={handleTextChange}
+            placeholder={placeholder}
+            className="card-surface flex-1 rounded-full px-4 py-2 text-black outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--brand-from)_40%,transparent)] dark:text-zinc-50"
+          />
+        )}
+
+        <button
+          type="button"
+          onClick={handleMicClick}
+          disabled={sending}
+          aria-label={recorder.isRecording ? "Stop and send voice note" : "Record a voice note"}
+          title={recorder.isRecording ? "Stop and send" : "Record a voice note"}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full disabled:opacity-40 ${
+            recorder.isRecording
+              ? "btn-primary text-white"
+              : "text-zinc-500 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          }`}
+        >
+          {recorder.isRecording ? <Square size={16} /> : <Mic size={18} />}
+        </button>
+
+        {!recorder.isRecording && (
+          <button
+            type="submit"
+            disabled={sending || !text.trim()}
+            className="btn-primary rounded-full px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Send
+          </button>
+        )}
+      </form>
+
+      {(error || recorder.error) && <p className="mt-2 text-sm text-red-500">{error ?? recorder.error}</p>}
+    </div>
+  );
+}

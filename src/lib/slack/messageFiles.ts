@@ -4,6 +4,7 @@ export interface SlackFileView {
   filetype: string;
   size: number;
   isImage: boolean;
+  isAudio: boolean;
   proxyUrl: string;
 }
 
@@ -30,6 +31,7 @@ export function extractSlackFiles(raw: unknown): SlackFileView[] {
       filetype: typeof file.filetype === "string" ? file.filetype : "",
       size: typeof file.size === "number" ? file.size : 0,
       isImage: mimetype.startsWith("image/"),
+      isAudio: mimetype.startsWith("audio/"),
       proxyUrl: `/api/files/proxy?url=${encodeURIComponent(urlPrivate)}`,
     });
   }

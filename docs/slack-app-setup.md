@@ -44,6 +44,7 @@ Under **OAuth & Permissions**:
 | `users:read` | Resolve user IDs to names/avatars |
 | `users.profile:read` | Read profile details for display |
 | `files:read` | Download files/images attached to messages |
+| `files:write` | Upload files and voice notes as attachments |
 | `search:read` | Power the in-app search screen |
 | `team:read` | Show workspace name/icon in the UI |
 

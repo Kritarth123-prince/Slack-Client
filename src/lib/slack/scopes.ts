@@ -46,6 +46,9 @@ export const SLACK_USER_SCOPES = [
   // Download files/images attached to messages.
   "files:read",
 
+  // Upload files and voice notes as attachments.
+  "files:write",
+
   // Search messages the user has access to.
   "search:read",
 

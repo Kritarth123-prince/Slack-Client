@@ -23,6 +23,7 @@ model User {
   readStates              ReadState[]
   sessions                Session[]
   savedMessages           SavedMessage[]
+  drafts                  Draft[]
 }
 
 // Server-side session record backing the HttpOnly session cookie.
@@ -138,6 +139,7 @@ model Conversation {
   members    ConversationMember[]
   messages   Message[]
   readStates ReadState[]
+  drafts     Draft[]
 
   @@unique([workspaceId, slackConversationId])
   @@index([workspaceId, lastMessageAt])
@@ -207,6 +209,23 @@ model SavedMessage {
 
   @@unique([userId, messageId])
   @@index([userId])
+}
+
+// An unsent message a user is composing in a conversation (or in one of its threads), persisted
+// so it survives navigating away/reloading. `threadTs` is a non-nullable "" sentinel (rather than
+// String?) for "the main composer" — Postgres treats every NULL as distinct in a unique index,
+// which would break upsert-on-conflict for the "no thread" case.
+model Draft {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  threadTs       String       @default("")
+  text           String
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([userId, conversationId, threadTs])
 }
 
 model Reaction {
