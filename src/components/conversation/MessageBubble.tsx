@@ -5,6 +5,7 @@ import { SlackText } from "@/lib/slack/formatSlackText";
 import { emojiGlyph } from "@/lib/ui/emoji";
 import { avatarGradient, initials } from "@/lib/ui/avatar";
 import { EmojiPicker } from "@/components/composer/EmojiPicker";
+import type { EmojiEntry } from "@/lib/ui/emoji";
 import type { ForwardTarget, MessageView } from "@/types/chat";
 import type { SlackFileView } from "@/lib/slack/messageFiles";
 
@@ -118,8 +119,8 @@ export function MessageBubble({
     setForwardOpen(false);
   }
 
-  function pickReaction(emoji: string) {
-    onToggleReaction(m.id, emoji);
+  function pickReaction(entry: EmojiEntry) {
+    onToggleReaction(m.id, entry.name);
     closePopovers();
   }
 
@@ -148,7 +149,7 @@ export function MessageBubble({
       className={`group flex items-end gap-2 ${m.isSelf ? "flex-row-reverse" : ""}`}
     >
       <Avatar seed={m.authorName} name={m.authorName} avatarUrl={m.authorAvatarUrl} />
-      <div className={`flex max-w-[75%] flex-col gap-1 ${m.isSelf ? "items-end" : "items-start"}`}>
+      <div className={`flex max-w-[85%] flex-col gap-1 sm:max-w-[75%] ${m.isSelf ? "items-end" : "items-start"}`}>
         {(!m.isSelf || m.isDeleted || m.pinned) && (
           <div className="flex items-center gap-1.5 px-1">
             {!m.isSelf && (
@@ -259,7 +260,7 @@ export function MessageBubble({
 
           {pickerOpen && (
             <div
-              className={`card-surface absolute bottom-full z-10 mb-1 flex flex-col gap-1 rounded-xl p-1 ${
+              className={`card-surface absolute bottom-full z-10 mb-1 flex max-w-[85vw] flex-col gap-1 rounded-xl p-1 ${
                 m.isSelf ? "right-0" : "left-0"
               }`}
             >
@@ -270,7 +271,10 @@ export function MessageBubble({
                   {QUICK_REACTIONS.map((name) => (
                     <button
                       key={name}
-                      onClick={() => pickReaction(name)}
+                      onClick={() => {
+                        onToggleReaction(m.id, name);
+                        closePopovers();
+                      }}
                       className="rounded-lg p-1 text-base hover:bg-black/[.04] dark:hover:bg-white/[.05]"
                     >
                       {emojiGlyph(name)}
@@ -290,7 +294,7 @@ export function MessageBubble({
 
           {menuOpen && (
             <div
-              className={`card-surface absolute bottom-full z-10 mb-1 flex w-40 flex-col overflow-hidden rounded-xl py-1 text-sm ${
+              className={`card-surface absolute bottom-full z-10 mb-1 flex w-40 max-w-[85vw] flex-col overflow-hidden rounded-xl py-1 text-sm ${
                 m.isSelf ? "right-0" : "left-0"
               }`}
             >
@@ -347,7 +351,7 @@ export function MessageBubble({
 
           {forwardOpen && (
             <div
-              className={`card-surface absolute bottom-full z-20 mb-1 flex max-h-56 w-56 flex-col overflow-y-auto rounded-xl py-1 text-sm ${
+              className={`card-surface absolute bottom-full z-20 mb-1 flex max-h-56 w-56 max-w-[85vw] flex-col overflow-y-auto rounded-xl py-1 text-sm ${
                 m.isSelf ? "right-0" : "left-0"
               }`}
             >

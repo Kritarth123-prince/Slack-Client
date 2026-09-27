@@ -56,7 +56,7 @@ export function ThreadPanel({
   };
 
   return (
-    <div className="card-surface fixed inset-y-0 right-0 z-30 flex h-full w-full flex-col border-l p-4 sm:w-[420px]">
+    <div className="card-surface fixed inset-y-0 right-0 z-30 flex h-dvh w-full flex-col border-l p-3 sm:w-[420px] sm:p-4">
       <div className="mb-3 flex items-center gap-3">
         <h2 className="flex-1 text-base font-bold">Thread</h2>
         <button

@@ -5,6 +5,7 @@ import { Paperclip, Mic, Square, Smile } from "lucide-react";
 import { useDraft } from "@/hooks/useDraft";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { EmojiPicker } from "@/components/composer/EmojiPicker";
+import type { EmojiEntry } from "@/lib/ui/emoji";
 import type { Member } from "@/types/chat";
 
 function escapeRegExp(value: string): string {
@@ -74,11 +75,11 @@ export function Composer({
     requestAnimationFrame(() => input?.focus());
   }
 
-  function insertEmoji(glyph: string) {
+  function insertEmoji(entry: EmojiEntry) {
     setEmojiOpen(false);
     const input = inputRef.current;
     const caret = input?.selectionStart ?? text.length;
-    setText(text.slice(0, caret) + glyph + text.slice(caret));
+    setText(text.slice(0, caret) + entry.glyph + text.slice(caret));
     requestAnimationFrame(() => input?.focus());
   }
 
@@ -106,12 +107,18 @@ export function Composer({
         if (index === 0 && initialComment) form.append("initialComment", initialComment);
 
         const res = await fetch(`/api/conversations/${conversationId}/files`, { method: "POST", body: form });
-        if (!res.ok) throw new Error("upload failed");
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+          if (body?.error === "missing_scope") {
+            throw new Error(body.message ?? "Reconnect your Slack account to enable uploads.");
+          }
+          throw new Error("upload failed");
+        }
       }
       clear();
       onSent();
-    } catch {
-      setError("Couldn't send that. Try again.");
+    } catch (err) {
+      setError(err instanceof Error && err.message !== "upload failed" ? err.message : "Couldn't send that. Try again.");
     } finally {
       setSending(false);
     }
@@ -161,9 +168,9 @@ export function Composer({
 
   return (
     <div>
-      <form onSubmit={handleSend} className="relative flex items-center gap-2">
+      <form onSubmit={handleSend} className="relative flex items-center gap-1 sm:gap-2">
         {mentionQuery !== null && filteredMembers.length > 0 && (
-          <ul className="card-surface absolute bottom-full mb-1 w-64 rounded-xl">
+          <ul className="card-surface absolute bottom-full mb-1 w-64 max-w-[85vw] rounded-xl">
             {filteredMembers.map((m) => (
               <li key={m.id}>
                 <button
@@ -191,29 +198,31 @@ export function Composer({
           disabled={sending || recorder.isRecording}
           aria-label="Attach files"
           title="Attach files"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] disabled:opacity-40 sm:h-9 sm:w-9 dark:text-zinc-400 dark:hover:bg-white/[.06]"
         >
-          <Paperclip size={18} />
+          <Paperclip size={17} />
         </button>
 
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => setEmojiOpen((v) => !v)}
             aria-label="Insert emoji"
             title="Insert emoji"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] sm:h-9 sm:w-9 dark:text-zinc-400 dark:hover:bg-white/[.06]"
           >
-            <Smile size={18} />
+            <Smile size={17} />
           </button>
           {emojiOpen && <EmojiPicker onPick={insertEmoji} />}
         </div>
 
         {recorder.isRecording ? (
-          <div className="card-surface flex flex-1 items-center gap-2 rounded-full px-4 py-2 text-sm">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-            <span className="text-zinc-600 dark:text-zinc-300">Recording… {formatElapsed(recorder.elapsedMs)}</span>
-            <button type="button" onClick={recorder.cancel} className="ml-auto text-xs text-zinc-500 dark:text-zinc-400">
+          <div className="card-surface flex min-w-0 flex-1 items-center gap-2 rounded-full px-3 py-2 text-sm sm:px-4">
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-red-500" />
+            <span className="truncate text-zinc-600 dark:text-zinc-300">
+              Recording… {formatElapsed(recorder.elapsedMs)}
+            </span>
+            <button type="button" onClick={recorder.cancel} className="ml-auto shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
               Cancel
             </button>
           </div>
@@ -223,7 +232,7 @@ export function Composer({
             value={text}
             onChange={handleTextChange}
             placeholder={placeholder}
-            className="card-surface flex-1 rounded-full px-4 py-2 text-black outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--brand-from)_40%,transparent)] dark:text-zinc-50"
+            className="card-surface min-w-0 flex-1 rounded-full px-3 py-2 text-black outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--brand-from)_40%,transparent)] sm:px-4 dark:text-zinc-50"
           />
         )}
 
@@ -233,20 +242,20 @@ export function Composer({
           disabled={sending}
           aria-label={recorder.isRecording ? "Stop and send voice note" : "Record a voice note"}
           title={recorder.isRecording ? "Stop and send" : "Record a voice note"}
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full disabled:opacity-40 ${
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full disabled:opacity-40 sm:h-9 sm:w-9 ${
             recorder.isRecording
               ? "btn-primary text-white"
               : "text-zinc-500 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
           }`}
         >
-          {recorder.isRecording ? <Square size={16} /> : <Mic size={18} />}
+          {recorder.isRecording ? <Square size={15} /> : <Mic size={17} />}
         </button>
 
         {!recorder.isRecording && (
           <button
             type="submit"
             disabled={sending || !text.trim()}
-            className="btn-primary rounded-full px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="btn-primary shrink-0 rounded-full px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:px-5"
           >
             Send
           </button>

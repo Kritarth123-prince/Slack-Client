@@ -298,7 +298,85 @@ export async function syncMessages(userId: string, conversation: Conversation, l
     });
   }
 
+  await backfillStaleThreads(conversation, client).catch((err) =>
+    logger.error("Failed to backfill thread replies", { message: (err as Error).message })
+  );
+
   return newlyArrived;
+}
+
+interface StaleThreadRoot {
+  slackTs: string;
+  replyCount: number;
+}
+
+/**
+ * conversations.history (used above) only ever returns root/top-level messages — Slack never
+ * includes thread replies in it, and once a root message is cached, the `oldest` cursor means
+ * history stops returning it on later calls too. So a thread that already had replies before this
+ * app ever synced the conversation (or whose replies came from clients this app's webhook doesn't
+ * reach) would otherwise never get its replies fetched. This finds exactly the thread roots where
+ * Slack's own reply_count (cached on the root message the last time it was fetched) is ahead of
+ * how many reply rows we actually have, so the fetch below only runs for threads that are behind.
+ */
+async function findStaleThreadRoots(conversationId: string): Promise<StaleThreadRoot[]> {
+  return prisma.$queryRaw<StaleThreadRoot[]>`
+    SELECT m."slackTs" AS "slackTs", (m.raw->>'reply_count')::int AS "replyCount"
+    FROM "Message" m
+    WHERE m."conversationId" = ${conversationId}
+      AND m."threadTs" = m."slackTs"
+      AND m.raw->>'reply_count' IS NOT NULL
+      AND (m.raw->>'reply_count')::int > (
+        SELECT COUNT(*)::int FROM "Message" r
+        WHERE r."conversationId" = m."conversationId"
+          AND r."threadTs" = m."slackTs"
+          AND r."slackTs" != m."slackTs"
+      )
+  `;
+}
+
+async function backfillStaleThreads(conversation: Conversation, client: WebClient): Promise<void> {
+  const stale = await findStaleThreadRoots(conversation.id);
+  for (const root of stale) {
+    await syncThreadReplies(conversation, client, root.slackTs);
+  }
+}
+
+/** Fetches every reply in a thread via conversations.replies and upserts them (the root itself is skipped — it's already synced as a normal history message). */
+async function syncThreadReplies(conversation: Conversation, client: WebClient, threadTs: string): Promise<void> {
+  let cursor: string | undefined;
+  do {
+    const res = await client.conversations
+      .replies({ channel: conversation.slackConversationId, ts: threadTs, limit: 200, cursor })
+      .catch(() => null);
+    if (!res) return;
+
+    for (const reply of res.messages ?? []) {
+      if (!reply.ts || reply.ts === threadTs) continue;
+
+      let authorId: string | null = null;
+      if (reply.user) {
+        const author = await upsertWorkspaceUser(conversation.workspaceId, client, reply.user);
+        authorId = author.id;
+      }
+      if (reply.text) await resolveMentionedUsers(conversation.workspaceId, client, reply.text);
+
+      await prisma.message.upsert({
+        where: { conversationId_slackTs: { conversationId: conversation.id, slackTs: reply.ts } },
+        update: { text: reply.text ?? "", raw: reply as Prisma.InputJsonValue },
+        create: {
+          conversationId: conversation.id,
+          slackTs: reply.ts,
+          threadTs: reply.thread_ts ?? threadTs,
+          authorId,
+          text: reply.text ?? "",
+          raw: reply as Prisma.InputJsonValue,
+        },
+      });
+    }
+
+    cursor = res.response_metadata?.next_cursor || undefined;
+  } while (cursor);
 }
 
 // A real workspace typically has far more channels than DMs, and each conversation costs a

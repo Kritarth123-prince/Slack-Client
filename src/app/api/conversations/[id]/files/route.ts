@@ -39,8 +39,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       initialComment,
     });
   } catch (err) {
-    logger.error("Failed to upload file to Slack", { message: (err as Error).message });
-    return NextResponse.json({ error: "upload_failed" }, { status: 502 });
+    const slackErrorCode = (err as { data?: { error?: string } }).data?.error;
+    logger.error("Failed to upload file to Slack", {
+      message: (err as Error).message,
+      slackErrorCode,
+    });
+
+    if (slackErrorCode === "missing_scope") {
+      return NextResponse.json(
+        { error: "missing_scope", message: "Reconnect your Slack account to enable file/voice-note uploads." },
+        { status: 403 }
+      );
+    }
+
+    return NextResponse.json({ error: "upload_failed", slackErrorCode }, { status: 502 });
   }
 
   return NextResponse.json({ ok: true });

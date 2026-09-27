@@ -43,7 +43,7 @@ export default async function AppHome() {
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-3 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <h1 className="gradient-text text-2xl font-bold tracking-tight">Conversations</h1>
         <StatusMenu />
