@@ -5,6 +5,7 @@ import { syncMessages, markConversationRead } from "@/lib/slack/sync";
 import { conversationLabel } from "@/lib/slack/conversationLabel";
 import { extractSlackFiles } from "@/lib/slack/messageFiles";
 import { groupReactions } from "@/lib/slack/reactionGroups";
+import { listReaders } from "@/server/services/presenceSignals";
 import { ConversationThread } from "./ConversationThread";
 
 export default async function ConversationPage({ params }: { params: Promise<{ id: string }> }) {
@@ -50,10 +51,13 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
   const lastTs = messages[messages.length - 1]?.slackTs;
   if (lastTs) await markConversationRead(userId, conversation.id, lastTs).catch(() => {});
 
+  const readers = await listReaders(conversation, userId);
+
   return (
     <ConversationThread
       conversationId={conversation.id}
       title={conversationLabel(conversation, installation.slackUserId)}
+      initialReaders={readers}
       initialMessages={messages.map((m) => ({
         id: m.id,
         slackTs: m.slackTs,

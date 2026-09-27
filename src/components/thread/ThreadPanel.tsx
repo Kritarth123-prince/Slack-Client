@@ -2,6 +2,7 @@
 
 import { MessageBubble } from "@/components/conversation/MessageBubble";
 import { Composer } from "@/components/composer/Composer";
+import { TypingLine } from "@/components/conversation/TypingLine";
 import type { ForwardTarget, Member, MessageView } from "@/types/chat";
 
 export function ThreadPanel({
@@ -21,6 +22,7 @@ export function ThreadPanel({
   onForwardTo,
   onSent,
   onClose,
+  typingNames = [],
 }: {
   conversationId: string;
   rootMessage: MessageView;
@@ -38,6 +40,7 @@ export function ThreadPanel({
   onForwardTo: (messageId: string, targetConversationId: string) => void;
   onSent: () => void;
   onClose: () => void;
+  typingNames?: string[];
 }) {
   const threadTs = rootMessage.threadTs ?? rootMessage.slackTs;
 
@@ -83,6 +86,7 @@ export function ThreadPanel({
       </div>
 
       <div className="mt-3">
+        <TypingLine names={typingNames} />
         <Composer
           key={threadTs}
           conversationId={conversationId}

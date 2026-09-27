@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TextWithFlags } from "@/lib/ui/EmojiGlyph";
 
 type Token =
   | { type: "text"; value: string }
@@ -107,7 +108,7 @@ function renderInline(text: string, key: string): ReactNode {
     const k = `${key}-${i}`;
     switch (seg.type) {
       case "text":
-        return seg.value;
+        return <TextWithFlags key={k} text={seg.value} />;
       case "bold":
         return <strong key={k}>{seg.value}</strong>;
       case "italic":

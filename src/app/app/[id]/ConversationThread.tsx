@@ -5,7 +5,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageBubble } from "@/components/conversation/MessageBubble";
 import { Composer } from "@/components/composer/Composer";
 import { ThreadPanel } from "@/components/thread/ThreadPanel";
+import { TypingLine } from "@/components/conversation/TypingLine";
 import type { ForwardTarget, Member, MessageView } from "@/types/chat";
+import type { TypingView, ReaderView } from "@/server/services/presenceSignals";
 
 const POLL_INTERVAL_MS = 4000;
 const NOTIFY_SYNC_INTERVAL_MS = 15000;
@@ -15,19 +17,30 @@ interface ApiMessage extends Omit<MessageView, "authorName" | "authorAvatarUrl">
   author: { displayName: string; avatarUrl: string | null } | null;
 }
 
+interface MessagesResponse {
+  messages: ApiMessage[];
+  userNames: Record<string, string>;
+  typing?: TypingView[];
+  readers?: ReaderView[];
+}
+
 export function ConversationThread({
   conversationId,
   title,
   initialMessages,
   initialUserNames,
+  initialReaders = [],
 }: {
   conversationId: string;
   title: string;
   initialMessages: MessageView[];
   initialUserNames: Record<string, string>;
+  initialReaders?: ReaderView[];
 }) {
   const [messages, setMessages] = useState<MessageView[]>(initialMessages);
   const [userNames, setUserNames] = useState<Record<string, string>>(initialUserNames);
+  const [typing, setTyping] = useState<TypingView[]>([]);
+  const [readers, setReaders] = useState<ReaderView[]>(initialReaders);
   const [error, setError] = useState<string | null>(null);
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -74,7 +87,7 @@ export function ConversationThread({
   async function refresh() {
     const res = await fetch(`/api/conversations/${conversationId}/messages`);
     if (!res.ok) return;
-    const data = (await res.json()) as { messages: ApiMessage[]; userNames: Record<string, string> };
+    const data = (await res.json()) as MessagesResponse;
     setMessages(
       data.messages.map(({ author, ...m }) => ({
         ...m,
@@ -83,6 +96,8 @@ export function ConversationThread({
       }))
     );
     setUserNames(data.userNames);
+    setTyping(data.typing ?? []);
+    setReaders(data.readers ?? []);
   }
 
   // The open conversation has no live push channel, so it polls like the conversation list already
@@ -225,6 +240,26 @@ export function ConversationThread({
   const openThread = openThreadTs ? messages.find((m) => m.slackTs === openThreadTs) : undefined;
   const openThreadReplies = openThreadTs ? repliesByThread.get(openThreadTs) ?? [] : [];
 
+  // "Seen by" goes on the newest feed message each reader has reached, not on every message
+  // below their cursor — one label per person, like a receipt, rather than a wall of names.
+  const seenByMessageId = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const reader of readers) {
+      let last: MessageView | undefined;
+      for (const m of feedMessages) {
+        if (m.slackTs <= reader.lastReadTs) last = m;
+        else break;
+      }
+      if (!last) continue;
+      map.set(last.id, [...(map.get(last.id) ?? []), reader.name]);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- feedMessages is derived from messages each render
+  }, [readers, messages]);
+
+  const rootTypingNames = typing.filter((t) => t.threadTs === "").map((t) => t.name);
+  const threadTypingNames = openThreadTs ? typing.filter((t) => t.threadTs === openThreadTs).map((t) => t.name) : [];
+
   const bubbleProps = {
     userNames,
     onReply: startReply,
@@ -285,13 +320,15 @@ export function ConversationThread({
             message={m}
             context="feed"
             replyCount={repliesByThread.get(m.slackTs)?.length ?? 0}
+            seenBy={seenByMessageId.get(m.id)}
             onOpenThread={setOpenThreadTs}
             {...bubbleProps}
           />
         ))}
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3">
+        <TypingLine names={rootTypingNames} />
         <Composer
           key={conversationId}
           conversationId={conversationId}
@@ -321,6 +358,7 @@ export function ConversationThread({
           onForwardTo={forwardTo}
           onSent={refresh}
           onClose={() => setOpenThreadTs(null)}
+          typingNames={threadTypingNames}
         />
       )}
     </div>

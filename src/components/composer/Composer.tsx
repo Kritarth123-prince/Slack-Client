@@ -13,6 +13,8 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const TYPING_PING_INTERVAL_MS = 3000;
+
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -79,9 +81,24 @@ export function Composer({
   const recorder = useAudioRecorder();
   const emojiPopoverRef = useClickOutside<HTMLDivElement>(emojiOpen, () => setEmojiOpen(false));
 
+  // One heartbeat every few seconds while keys are being pressed — enough for the other side's
+  // 4s poll to show "is typing" without a request per keystroke. Sending clears it explicitly.
+  const lastTypingPingRef = useRef(0);
+  function pingTyping(stop = false) {
+    const now = Date.now();
+    if (!stop && now - lastTypingPingRef.current < TYPING_PING_INTERVAL_MS) return;
+    lastTypingPingRef.current = stop ? 0 : now;
+    fetch(`/api/conversations/${conversationId}/typing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadTs: threadTs ?? "", stop }),
+    }).catch(() => {});
+  }
+
   function handleTextChange(e: ChangeEvent<HTMLInputElement>) {
     const value = e.target.value;
     setText(value);
+    if (value.trim()) pingTyping();
 
     const caret = e.target.selectionStart ?? value.length;
     const uptoCaret = value.slice(0, caret);
@@ -176,6 +193,7 @@ export function Composer({
       }
       setPendingFiles([]);
       clear();
+      pingTyping(true);
       onSent();
     } catch (err) {
       setError(err instanceof Error && err.message !== "upload failed" ? err.message : "Couldn't send that. Try again.");
@@ -196,6 +214,7 @@ export function Composer({
       if (!res.ok) throw new Error("send failed");
       setMentionMap({});
       clear();
+      lastTypingPingRef.current = 0;
       onSent();
     } catch {
       setError("Couldn't send that message. Try again.");

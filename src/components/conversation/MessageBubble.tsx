@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { SlackText } from "@/lib/slack/formatSlackText";
 import { emojiGlyph } from "@/lib/ui/emoji";
+import { EmojiGlyph } from "@/lib/ui/EmojiGlyph";
 import { avatarGradient, initials } from "@/lib/ui/avatar";
 import { EmojiPicker } from "@/components/composer/EmojiPicker";
 import { LinkPreviewCard } from "@/components/conversation/LinkPreviewCard";
@@ -82,6 +83,7 @@ export function MessageBubble({
   userNames,
   context,
   replyCount = 0,
+  seenBy = [],
   onOpenThread,
   onReply,
   onToggleReaction,
@@ -97,6 +99,7 @@ export function MessageBubble({
   userNames: Record<string, string>;
   context: "feed" | "thread";
   replyCount?: number;
+  seenBy?: string[];
   onOpenThread?: (rootTs: string) => void;
   onReply: (message: MessageView) => void;
   onToggleReaction: (messageId: string, emoji: string) => void;
@@ -217,6 +220,12 @@ export function MessageBubble({
 
         {previewUrl && <LinkPreviewCard url={previewUrl} />}
 
+        {seenBy.length > 0 && (
+          <span className="px-1 text-[10px] text-zinc-400 dark:text-zinc-500" title="Seen by people using this app">
+            ✓ Seen by {seenBy.join(", ")}
+          </span>
+        )}
+
         {m.files.map((file) => (
           <FileAttachment key={file.id} file={file} />
         ))}
@@ -232,7 +241,7 @@ export function MessageBubble({
                   : "border-black/[.08] hover:bg-black/[.03] dark:border-white/[.145] dark:hover:bg-white/[.05]"
               }`}
             >
-              {emojiGlyph(r.emoji)} {r.count}
+              <EmojiGlyph glyph={emojiGlyph(r.emoji)} /> {r.count}
             </button>
           ))}
           {!m.isDeleted && (
@@ -288,7 +297,7 @@ export function MessageBubble({
                       }}
                       className="rounded-lg p-1 text-base hover:bg-black/[.04] dark:hover:bg-white/[.05]"
                     >
-                      {emojiGlyph(name)}
+                      <EmojiGlyph glyph={emojiGlyph(name)} />
                     </button>
                   ))}
                   <button

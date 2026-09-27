@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { searchEmoji, type EmojiEntry } from "@/lib/ui/emoji";
+import { EmojiGlyph } from "@/lib/ui/EmojiGlyph";
 
 export function EmojiPicker({
   onPick,
@@ -35,7 +36,7 @@ export function EmojiPicker({
             onClick={() => onPick(entry)}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-lg hover:bg-black/[.04] dark:hover:bg-white/[.05]"
           >
-            {entry.glyph}
+            <EmojiGlyph glyph={entry.glyph} />
           </button>
         ))}
         {results.length === 0 && (

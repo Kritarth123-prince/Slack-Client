@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { syncMessages, postMessage, markConversationRead } from "@/lib/slack/sync";
 import { extractSlackFiles } from "@/lib/slack/messageFiles";
 import { groupReactions } from "@/lib/slack/reactionGroups";
+import { listTyping, listReaders, clearTyping } from "@/server/services/presenceSignals";
 import { logger } from "@/lib/logger";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -70,7 +71,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const lastTs = messages[messages.length - 1]?.slackTs;
   if (lastTs) await markConversationRead(userId, conversation.id, lastTs).catch(() => {});
 
-  return NextResponse.json({ messages: responseMessages, userNames });
+  const [typing, readers] = await Promise.all([listTyping(conversation.id, self?.id), listReaders(conversation, userId)]);
+
+  return NextResponse.json({ messages: responseMessages, userNames, typing, readers });
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -88,6 +91,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   try {
     await postMessage(userId, conversation, text, threadTs);
+    await clearTyping(userId, conversation, threadTs ?? "").catch(() => {});
   } catch (err) {
     logger.error("Failed to send Slack message", { message: (err as Error).message });
     return NextResponse.json({ error: "send_failed" }, { status: 502 });

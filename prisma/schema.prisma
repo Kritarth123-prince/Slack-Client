@@ -102,6 +102,7 @@ model SlackUser {
   messages           Message[]
   reactions          Reaction[]
   conversationMembers ConversationMember[]
+  typingIndicators   TypingIndicator[]
 
   @@unique([workspaceId, slackUserId])
   @@index([workspaceId])
@@ -140,6 +141,7 @@ model Conversation {
   messages   Message[]
   readStates ReadState[]
   drafts     Draft[]
+  typing     TypingIndicator[]
 
   @@unique([workspaceId, slackConversationId])
   @@index([workspaceId, lastMessageAt])
@@ -318,6 +320,23 @@ model ProcessedSlackEvent {
   id          String   @id // Slack's event_id
   eventType   String
   processedAt DateTime @default(now())
+}
+
+// "Who is typing right now" — app-local only. Slack never exposes typing over the Web API (it's
+// an RTM/Socket Mode event), so this is a heartbeat each composer writes while its owner types,
+// read back by the conversation poll and treated as stale after a few seconds. `updatedAt` is set
+// explicitly on every heartbeat rather than via @updatedAt so an unchanged upsert still bumps it.
+model TypingIndicator {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  threadTs       String       @default("") // "" = the main composer; a Slack thread ts otherwise
+  slackUserId    String
+  slackUser      SlackUser    @relation(fields: [slackUserId], references: [id], onDelete: Cascade)
+  updatedAt      DateTime
+
+  @@unique([conversationId, threadTs, slackUserId])
+  @@index([conversationId, updatedAt])
 }
 
 // Open Graph metadata for a link seen in a message, fetched once by this server and cached so
