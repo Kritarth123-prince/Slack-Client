@@ -5,6 +5,7 @@ import { SlackText } from "@/lib/slack/formatSlackText";
 import { emojiGlyph } from "@/lib/ui/emoji";
 import { avatarGradient, initials } from "@/lib/ui/avatar";
 import { EmojiPicker } from "@/components/composer/EmojiPicker";
+import { useClickOutside } from "@/hooks/useClickOutside";
 import type { EmojiEntry } from "@/lib/ui/emoji";
 import type { ForwardTarget, MessageView } from "@/types/chat";
 import type { SlackFileView } from "@/lib/slack/messageFiles";
@@ -119,6 +120,11 @@ export function MessageBubble({
     setForwardOpen(false);
   }
 
+  const popoversRef = useClickOutside<HTMLDivElement>(
+    pickerOpen || menuOpen || forwardOpen,
+    closePopovers
+  );
+
   function pickReaction(entry: EmojiEntry) {
     onToggleReaction(m.id, entry.name);
     closePopovers();
@@ -149,7 +155,7 @@ export function MessageBubble({
       className={`group flex items-end gap-2 ${m.isSelf ? "flex-row-reverse" : ""}`}
     >
       <Avatar seed={m.authorName} name={m.authorName} avatarUrl={m.authorAvatarUrl} />
-      <div className={`flex max-w-[85%] flex-col gap-1 sm:max-w-[75%] ${m.isSelf ? "items-end" : "items-start"}`}>
+      <div className={`flex min-w-0 max-w-[85%] flex-col gap-1 sm:max-w-[75%] ${m.isSelf ? "items-end" : "items-start"}`}>
         {(!m.isSelf || m.isDeleted || m.pinned) && (
           <div className="flex items-center gap-1.5 px-1">
             {!m.isSelf && (
@@ -210,7 +216,7 @@ export function MessageBubble({
           <FileAttachment key={file.id} file={file} />
         ))}
 
-        <div className="relative flex flex-wrap items-center gap-1">
+        <div ref={popoversRef} className="relative flex flex-wrap items-center gap-1">
           {m.reactions.map((r) => (
             <button
               key={r.emoji}

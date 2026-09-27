@@ -56,7 +56,7 @@ export function ThreadPanel({
   };
 
   return (
-    <div className="card-surface fixed inset-y-0 right-0 z-30 flex h-dvh w-full flex-col border-l p-3 sm:w-[420px] sm:p-4">
+    <div className="card-surface fixed inset-y-0 right-0 z-30 flex h-dvh w-full flex-col overflow-x-hidden border-l p-3 sm:w-[420px] sm:p-4">
       <div className="mb-3 flex items-center gap-3">
         <h2 className="flex-1 text-base font-bold">Thread</h2>
         <button
@@ -68,7 +68,7 @@ export function ThreadPanel({
         </button>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-1 py-2">
+      <div className="flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-1 py-2">
         <MessageBubble message={rootMessage} {...bubbleProps} />
 
         <div className="flex items-center gap-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">

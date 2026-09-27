@@ -8,6 +8,12 @@ export interface SlackFileView {
   proxyUrl: string;
 }
 
+// Slack's own `mimetype` for a browser-recorded voice note isn't always `audio/*` (e.g. some
+// browsers report an audio-only MediaRecorder blob as `video/mp4`), so audio detection also falls
+// back to Slack's normalized `filetype` and, failing that, the filename extension.
+const AUDIO_FILETYPES = new Set(["webm", "m4a", "mp3", "wav", "ogg", "oga", "aac", "flac", "opus", "mp4a"]);
+const AUDIO_EXTENSION_RE = /\.(webm|m4a|mp3|wav|ogg|oga|aac|flac|opus)$/i;
+
 /** Pulls attached files out of a message's raw Slack payload for display. */
 export function extractSlackFiles(raw: unknown): SlackFileView[] {
   if (!raw || typeof raw !== "object") return [];
@@ -24,14 +30,16 @@ export function extractSlackFiles(raw: unknown): SlackFileView[] {
     if (!id || !urlPrivate) continue;
 
     const mimetype = typeof file.mimetype === "string" ? file.mimetype : "";
+    const filetype = typeof file.filetype === "string" ? file.filetype.toLowerCase() : "";
+    const name = typeof file.name === "string" ? file.name : "file";
 
     result.push({
       id,
-      name: typeof file.name === "string" ? file.name : "file",
+      name,
       filetype: typeof file.filetype === "string" ? file.filetype : "",
       size: typeof file.size === "number" ? file.size : 0,
       isImage: mimetype.startsWith("image/"),
-      isAudio: mimetype.startsWith("audio/"),
+      isAudio: mimetype.startsWith("audio/") || AUDIO_FILETYPES.has(filetype) || AUDIO_EXTENSION_RE.test(name),
       proxyUrl: `/api/files/proxy?url=${encodeURIComponent(urlPrivate)}`,
     });
   }

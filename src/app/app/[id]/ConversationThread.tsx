@@ -239,7 +239,7 @@ export function ConversationThread({
   };
 
   return (
-    <div className="mx-auto flex h-dvh w-full max-w-2xl flex-col p-3 sm:p-6">
+    <div className="mx-auto flex h-dvh w-full max-w-2xl flex-col overflow-x-hidden p-3 sm:p-6">
       <div className="mb-4 flex items-center gap-2 sm:gap-3">
         <Link
           href="/app"
@@ -278,7 +278,7 @@ export function ConversationThread({
         </div>
       )}
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 space-y-4 overflow-y-auto px-1 py-2">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-1 py-2">
         {feedMessages.map((m) => (
           <MessageBubble
             key={m.id}
