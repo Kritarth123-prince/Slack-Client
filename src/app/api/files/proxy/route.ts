@@ -37,19 +37,35 @@ export async function GET(request: NextRequest) {
     authTag: installation.tokenAuthTag,
   });
 
-  const upstream = await fetch(target.toString(), { headers: { Authorization: `Bearer ${token}` } }).catch((err) => {
+  // Mobile Safari's <audio>/<video> refuse to play a resource at all unless the server answers
+  // range requests (206 + Content-Range) — desktop browsers are far more lenient and will happily
+  // play a plain 200 response, which is why voice notes/video played fine on desktop but errored
+  // out on iOS. So the incoming Range request is forwarded upstream, and Slack's response status
+  // and range headers are relayed back as-is rather than always answering with a flat 200.
+  const rangeHeader = request.headers.get("range");
+  const upstream = await fetch(target.toString(), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(rangeHeader ? { Range: rangeHeader } : {}),
+    },
+  }).catch((err) => {
     logger.error("Failed to proxy Slack file", { message: (err as Error).message });
     return null;
   });
 
-  if (!upstream || !upstream.ok || !upstream.body) {
+  if (!upstream || !upstream.body || (upstream.status !== 200 && upstream.status !== 206)) {
     return NextResponse.json({ error: "fetch_failed" }, { status: 502 });
   }
 
-  return new NextResponse(upstream.body, {
-    headers: {
-      "Content-Type": upstream.headers.get("content-type") ?? "application/octet-stream",
-      "Cache-Control": "private, max-age=3600",
-    },
+  const headers = new Headers({
+    "Content-Type": upstream.headers.get("content-type") ?? "application/octet-stream",
+    "Cache-Control": "private, max-age=3600",
+    "Accept-Ranges": "bytes",
   });
+  const contentRange = upstream.headers.get("content-range");
+  if (contentRange) headers.set("Content-Range", contentRange);
+  const contentLength = upstream.headers.get("content-length");
+  if (contentLength) headers.set("Content-Length", contentLength);
+
+  return new NextResponse(upstream.body, { status: upstream.status, headers });
 }
