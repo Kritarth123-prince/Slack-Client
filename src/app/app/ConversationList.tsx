@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { avatarGradient, initials } from "@/lib/ui/avatar";
 
@@ -8,29 +9,27 @@ export interface ConversationListItem {
   id: string;
   label: string;
   unread: boolean;
+  unreadCount: number;
   type: "PUBLIC_CHANNEL" | "PRIVATE_CHANNEL" | "DM" | "GROUP_DM";
   avatarUrl: string | null;
 }
 
 const POLL_INTERVAL_MS = 15000;
 
-function ConversationAvatar({ item }: { item: ConversationListItem }) {
+function ConversationAvatar({ item, compact }: { item: ConversationListItem; compact: boolean }) {
   const isChannel = item.type === "PUBLIC_CHANNEL" || item.type === "PRIVATE_CHANNEL";
+  const size = compact ? "h-8 w-8 text-xs rounded-lg" : "h-10 w-10 text-sm rounded-xl";
 
   if (item.avatarUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element -- external Slack CDN URL, not a local/static asset
-      <img
-        src={item.avatarUrl}
-        alt=""
-        className="h-10 w-10 shrink-0 rounded-xl object-cover shadow-sm"
-      />
+      <img src={item.avatarUrl} alt="" className={`${size} shrink-0 object-cover shadow-sm`} />
     );
   }
 
   return (
     <div
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-semibold text-white"
+      className={`${size} flex shrink-0 items-center justify-center font-semibold text-white`}
       style={{ backgroundImage: avatarGradient(item.id) }}
     >
       {isChannel ? "#" : initials(item.label)}
@@ -38,8 +37,23 @@ function ConversationAvatar({ item }: { item: ConversationListItem }) {
   );
 }
 
-export function ConversationList({ initial }: { initial: ConversationListItem[] }) {
+function UnreadBadge({ count }: { count: number }) {
+  if (count <= 0) {
+    return <span className="btn-primary h-2.5 w-2.5 shrink-0 rounded-full" aria-label="Unread" />;
+  }
+  return (
+    <span
+      className="btn-primary flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold text-white"
+      aria-label={`${count} unread`}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+export function ConversationList({ initial, compact = false }: { initial: ConversationListItem[]; compact?: boolean }) {
   const [items, setItems] = useState<ConversationListItem[]>(initial);
+  const pathname = usePathname();
 
   useEffect(() => {
     let cancelled = false;
@@ -86,39 +100,42 @@ export function ConversationList({ initial }: { initial: ConversationListItem[] 
 
   if (items.length === 0) {
     return (
-      <p className="text-zinc-500 dark:text-zinc-400">
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">
         No conversations found yet. Make sure you&apos;re a member of at least one channel or DM in Slack.
       </p>
     );
   }
 
   return (
-    <ul className="flex flex-col gap-2">
-      {items.map((c) => (
-        <li key={c.id}>
-          <Link
-            href={`/app/${c.id}`}
-            className={`card-surface group flex items-center gap-3 rounded-2xl px-4 py-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${
-              c.unread ? "ring-1 ring-inset ring-[color-mix(in_srgb,var(--brand-from)_35%,transparent)]" : ""
-            }`}
-          >
-            <ConversationAvatar item={c} />
-            <span
-              className={`flex-1 truncate ${
-                c.unread ? "font-semibold text-black dark:text-zinc-50" : "text-zinc-700 dark:text-zinc-300"
+    <ul className={`flex flex-col ${compact ? "gap-1" : "gap-2"}`}>
+      {items.map((c) => {
+        const active = pathname === `/app/${c.id}`;
+        return (
+          <li key={c.id}>
+            <Link
+              href={`/app/${c.id}`}
+              aria-current={active ? "page" : undefined}
+              className={`group flex items-center gap-3 transition-all ${
+                compact
+                  ? `rounded-xl px-2.5 py-2 ${active ? "bg-[color-mix(in_srgb,var(--brand-from)_12%,transparent)]" : "hover:bg-black/[.04] dark:hover:bg-white/[.06]"}`
+                  : `card-surface rounded-2xl px-4 py-3 hover:-translate-y-0.5 hover:shadow-lg ${
+                      c.unread ? "ring-1 ring-inset ring-[color-mix(in_srgb,var(--brand-from)_35%,transparent)]" : ""
+                    }`
               }`}
             >
-              {c.label}
-            </span>
-            {c.unread && (
+              <ConversationAvatar item={c} compact={compact} />
               <span
-                className="btn-primary h-2.5 w-2.5 shrink-0 rounded-full"
-                aria-label="Unread"
-              />
-            )}
-          </Link>
-        </li>
-      ))}
+                className={`min-w-0 flex-1 truncate ${compact ? "text-sm" : ""} ${
+                  c.unread || active ? "font-semibold text-black dark:text-zinc-50" : "text-zinc-700 dark:text-zinc-300"
+                }`}
+              >
+                {c.label}
+              </span>
+              {c.unread && <UnreadBadge count={c.unreadCount} />}
+            </Link>
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -5,7 +5,9 @@ import { SlackText } from "@/lib/slack/formatSlackText";
 import { emojiGlyph } from "@/lib/ui/emoji";
 import { avatarGradient, initials } from "@/lib/ui/avatar";
 import { EmojiPicker } from "@/components/composer/EmojiPicker";
+import { LinkPreviewCard } from "@/components/conversation/LinkPreviewCard";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { firstLinkIn } from "@/lib/slack/links";
 import type { EmojiEntry } from "@/lib/ui/emoji";
 import type { ForwardTarget, MessageView } from "@/types/chat";
 import type { SlackFileView } from "@/lib/slack/messageFiles";
@@ -124,6 +126,7 @@ export function MessageBubble({
     pickerOpen || menuOpen || forwardOpen,
     closePopovers
   );
+  const previewUrl = m.isDeleted ? null : firstLinkIn(m.text);
 
   function pickReaction(entry: EmojiEntry) {
     onToggleReaction(m.id, entry.name);
@@ -211,6 +214,8 @@ export function MessageBubble({
             </div>
           )
         )}
+
+        {previewUrl && <LinkPreviewCard url={previewUrl} />}
 
         {m.files.map((file) => (
           <FileAttachment key={file.id} file={file} />

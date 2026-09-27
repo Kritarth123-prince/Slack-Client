@@ -239,11 +239,11 @@ export function ConversationThread({
   };
 
   return (
-    <div className="mx-auto flex h-dvh w-full max-w-2xl flex-col overflow-x-hidden p-3 sm:p-6">
+    <div className="mx-auto flex h-full w-full max-w-2xl flex-col overflow-x-hidden p-3 sm:p-6">
       <div className="mb-4 flex items-center gap-2 sm:gap-3">
         <Link
           href="/app"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] md:hidden dark:text-zinc-400 dark:hover:bg-white/[.06]"
           aria-label="Back to conversations"
         >
           ←
@@ -278,7 +278,7 @@ export function ConversationThread({
         </div>
       )}
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-1 py-2">
+      <div ref={scrollRef} onScroll={handleScroll} className="message-feed flex-1 overflow-y-auto overflow-x-hidden px-1 py-2">
         {feedMessages.map((m) => (
           <MessageBubble
             key={m.id}

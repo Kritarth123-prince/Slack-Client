@@ -68,7 +68,7 @@ export function ThreadPanel({
         </button>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-1 py-2">
+      <div className="message-feed flex-1 overflow-x-hidden overflow-y-auto px-1 py-2">
         <MessageBubble message={rootMessage} {...bubbleProps} />
 
         <div className="flex items-center gap-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">

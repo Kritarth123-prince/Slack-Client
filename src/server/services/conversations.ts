@@ -1,0 +1,94 @@
+import { cache } from "react";
+import { prisma } from "@/lib/db/prisma";
+import { conversationLabel, conversationAvatarUrl } from "@/lib/slack/conversationLabel";
+import { syncConversationsForUser } from "@/lib/slack/sync";
+import { syncWorkspaceBranding } from "@/server/services/workspace";
+import { logger } from "@/lib/logger";
+
+export interface ConversationListItem {
+  id: string;
+  label: string;
+  unread: boolean;
+  unreadCount: number;
+  type: "PUBLIC_CHANNEL" | "PRIVATE_CHANNEL" | "DM" | "GROUP_DM";
+  avatarUrl: string | null;
+}
+
+/**
+ * The conversation list with real unread counts. A conversation is "unread" when its latest
+ * message is past the user's read cursor; the count is how many messages from other people have
+ * arrived since that cursor (capped by what's cached locally, which is all the UI can show anyway).
+ */
+export async function getConversationListItems(userId: string): Promise<ConversationListItem[]> {
+  const installation = await prisma.slackInstallation.findFirst({
+    where: { userId, revokedAt: null },
+    orderBy: { installedAt: "desc" },
+  });
+  if (!installation) return [];
+
+  const [conversations, readStates, self] = await Promise.all([
+    prisma.conversation.findMany({
+      where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
+      orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }],
+      include: { members: { include: { slackUser: true } } },
+    }),
+    prisma.readState.findMany({ where: { userId } }),
+    prisma.slackUser.findUnique({
+      where: {
+        workspaceId_slackUserId: { workspaceId: installation.workspaceId, slackUserId: installation.slackUserId },
+      },
+    }),
+  ]);
+
+  const readMap = new Map(readStates.map((r) => [r.conversationId, r.lastReadTs]));
+
+  const unreadConversations = conversations.filter((c) => {
+    const lastRead = readMap.get(c.id);
+    return Boolean(c.lastMessageTs) && (!lastRead || lastRead < c.lastMessageTs!);
+  });
+
+  const counts =
+    unreadConversations.length === 0
+      ? []
+      : await prisma.message.groupBy({
+          by: ["conversationId"],
+          _count: { _all: true },
+          where: {
+            deletedAt: null,
+            ...(self ? { NOT: { authorId: self.id } } : {}),
+            OR: unreadConversations.map((c) => {
+              const lastRead = readMap.get(c.id);
+              return { conversationId: c.id, ...(lastRead ? { slackTs: { gt: lastRead } } : {}) };
+            }),
+          },
+        });
+  const countMap = new Map(counts.map((row) => [row.conversationId, row._count._all]));
+
+  return conversations.map((c) => {
+    const lastRead = readMap.get(c.id);
+    const unread = Boolean(c.lastMessageTs) && (!lastRead || lastRead < c.lastMessageTs!);
+    return {
+      id: c.id,
+      label: conversationLabel(c, installation.slackUserId),
+      unread,
+      unreadCount: unread ? (countMap.get(c.id) ?? 0) : 0,
+      type: c.type,
+      avatarUrl: conversationAvatarUrl(c, installation.slackUserId),
+    };
+  });
+}
+
+/**
+ * Syncs from Slack, then builds the list. Wrapped in React's cache() so the app layout (sidebar)
+ * and a page rendered inside it share one sync + one query per request instead of each doing
+ * their own — the sync is the expensive part.
+ */
+export const loadConversationList = cache(async (userId: string): Promise<ConversationListItem[]> => {
+  await Promise.all([
+    syncConversationsForUser(userId).catch((err) =>
+      logger.error("Failed to sync conversations", { message: (err as Error).message })
+    ),
+    syncWorkspaceBranding(userId),
+  ]);
+  return getConversationListItems(userId);
+});

@@ -3,8 +3,7 @@ import { ConversationType, type Conversation, type Message, type Prisma } from "
 import { prisma } from "@/lib/db/prisma";
 import { getSlackClientForUser } from "@/lib/slack/client";
 import type { SlackEventEnvelope } from "@/lib/slack/events";
-import { sendPushToUser } from "@/lib/push";
-import { isDoNotDisturb } from "@/lib/slack/presence";
+import { sendPushToUser, notificationAllowed } from "@/lib/push";
 import { logger } from "@/lib/logger";
 
 type SlackEvent = NonNullable<SlackEventEnvelope["event"]>;
@@ -401,7 +400,7 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
   });
   if (!installation) return;
 
-  const [conversations, self, doNotDisturb] = await Promise.all([
+  const [conversations, self] = await Promise.all([
     prisma.conversation.findMany({
       where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
       // Most-recently-active first, so a large channel list degrades gracefully: whatever gets
@@ -414,7 +413,6 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
         workspaceId_slackUserId: { workspaceId: installation.workspaceId, slackUserId: installation.slackUserId },
       },
     }),
-    isDoNotDisturb(userId),
   ]);
 
   const startedAt = Date.now();
@@ -436,7 +434,15 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
     }
 
     for (const msg of newMessages) {
-      if (!msg.authorId || msg.authorId === self?.id || doNotDisturb) continue;
+      if (!msg.authorId || msg.authorId === self?.id) continue;
+
+      const allowed = await notificationAllowed(userId, {
+        conversationType: conversation.type,
+        text: msg.text,
+        selfSlackUserId: installation.slackUserId,
+        isThreadReply: Boolean(msg.threadTs && msg.threadTs !== msg.slackTs),
+      });
+      if (!allowed) continue;
 
       const author = await prisma.slackUser.findUnique({ where: { id: msg.authorId } });
       await sendPushToUser(userId, {
@@ -596,18 +602,23 @@ export async function forwardMessage(
  * conversation so the resulting message (with its file payload) lands in the local cache the same
  * way any other new message does — simpler and more robust than hand-parsing uploadV2's response.
  */
-export async function uploadFile(
+export async function uploadFiles(
   userId: string,
   conversation: Conversation,
-  file: { data: Buffer; filename: string; threadTs?: string; initialComment?: string }
+  upload: { files: { data: Buffer; filename: string }[]; threadTs?: string; initialComment?: string }
 ): Promise<void> {
   const client = await getSlackClientForUser(userId);
-  const shared = { file: file.data, filename: file.filename, initial_comment: file.initialComment };
+  // Several files go up as one `file_uploads` batch so Slack posts them as a single message
+  // (with the caption on it) rather than one message per file.
+  const shared = {
+    file_uploads: upload.files.map((f) => ({ file: f.data, filename: f.filename })),
+    initial_comment: upload.initialComment,
+  };
   // files.uploadV2's types model "posting into a thread" and "posting into a channel" as a
   // discriminated union (thread_ts is required alongside channel_id, or disallowed entirely) — so
   // this needs two call sites rather than one object with an optional thread_ts.
-  if (file.threadTs) {
-    await client.files.uploadV2({ channel_id: conversation.slackConversationId, thread_ts: file.threadTs, ...shared });
+  if (upload.threadTs) {
+    await client.files.uploadV2({ channel_id: conversation.slackConversationId, thread_ts: upload.threadTs, ...shared });
   } else {
     await client.files.uploadV2({ channel_id: conversation.slackConversationId, ...shared });
   }
@@ -759,6 +770,14 @@ async function handleMessageEvent(
   });
 
   if (isNewMessage && authorSlackId && authorSlackId !== notify.selfSlackUserId) {
+    const allowed = await notificationAllowed(notify.userId, {
+      conversationType: conversation.type,
+      text,
+      selfSlackUserId: notify.selfSlackUserId,
+      isThreadReply: threadTs !== ts,
+    });
+    if (!allowed) return;
+
     await sendPushToUser(notify.userId, {
       title: authorName ?? "New message",
       body: text || "Sent an attachment",

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { conversationLabel, conversationAvatarUrl } from "@/lib/slack/conversationLabel";
 import { syncAllConversationsAndNotify } from "@/lib/slack/sync";
+import { getConversationListItems } from "@/server/services/conversations";
 import { logger } from "@/lib/logger";
 
 export async function GET() {
@@ -23,30 +23,7 @@ export async function GET() {
   );
 
   try {
-    const conversations = await prisma.conversation.findMany({
-      where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
-      orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }],
-      include: { members: { include: { slackUser: true } } },
-    });
-
-    const readStates = await prisma.readState.findMany({
-      where: { userId, conversationId: { in: conversations.map((c) => c.id) } },
-    });
-    const readMap = new Map(readStates.map((r) => [r.conversationId, r.lastReadTs]));
-
-    const result = conversations.map((c) => {
-      const lastRead = readMap.get(c.id);
-      const unread = Boolean(c.lastMessageTs) && (!lastRead || lastRead < c.lastMessageTs!);
-      return {
-        id: c.id,
-        label: conversationLabel(c, installation.slackUserId),
-        unread,
-        type: c.type,
-        avatarUrl: conversationAvatarUrl(c, installation.slackUserId),
-      };
-    });
-
-    return NextResponse.json({ conversations: result });
+    return NextResponse.json({ conversations: await getConversationListItems(userId) });
   } catch (err) {
     logger.error("Failed to list conversations", { message: (err as Error).message });
     return NextResponse.json({ error: "failed" }, { status: 500 });

@@ -27,11 +27,11 @@ export default async function SavedMessagesPage() {
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-3 sm:p-6">
       <div className="flex items-center gap-3">
         <Link
           href="/app"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] md:hidden dark:text-zinc-400 dark:hover:bg-white/[.06]"
           aria-label="Back to conversations"
         >
           ←

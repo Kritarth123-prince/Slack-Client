@@ -238,10 +238,3 @@ export async function updateStatus(userId: string, input: UpdateStatusInput): Pr
 
   return toView(pref, summarizeSyncResults(results));
 }
-
-/** Cheap local-only check used by the notification path — doesn't touch Slack, just whether this
- * app should push a notification to the user's devices right now. */
-export async function isDoNotDisturb(userId: string): Promise<boolean> {
-  const pref = await prisma.userPreference.findUnique({ where: { userId }, select: { doNotDisturb: true } });
-  return pref?.doNotDisturb ?? false;
-}

@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Dark mode is driven by data-theme on <html> rather than the OS media query directly, so the
+   Appearance setting can force light/dark. "System" is resolved to one of the two by the inline
+   script in the root layout, which also tracks OS changes live. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
   --background: #f7f7fb;
   --foreground: #17172a;
@@ -9,6 +14,7 @@
   --brand-from: #6366f1;
   --brand-to: #ec4899;
   --shadow-color: 220 40% 60%;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -20,15 +26,25 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0b0b14;
-    --foreground: #ededf3;
-    --surface: #15151f;
-    --surface-muted: #1c1c29;
-    --border: rgba(255, 255, 255, 0.08);
-    --shadow-color: 260 60% 15%;
-  }
+:root[data-theme="dark"] {
+  --background: #0b0b14;
+  --foreground: #ededf3;
+  --surface: #15151f;
+  --surface-muted: #1c1c29;
+  --border: rgba(255, 255, 255, 0.08);
+  --shadow-color: 260 60% 15%;
+  color-scheme: dark;
+}
+
+/* Message density (Settings → Compact) tightens the gap between messages in a feed. */
+.message-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+:root[data-density="compact"] .message-feed {
+  gap: 0.375rem;
 }
 
 html {

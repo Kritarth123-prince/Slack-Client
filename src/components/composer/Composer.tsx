@@ -158,20 +158,21 @@ export function Composer({
     setSending(true);
     setError(null);
     try {
-      for (const [index, file] of pendingFiles.entries()) {
-        const form = new FormData();
-        form.append("file", file);
-        if (threadTs) form.append("threadTs", threadTs);
-        if (index === 0 && text.trim()) form.append("initialComment", text.trim());
+      // All pending files go in one request so Slack posts them as a single message with the caption.
+      const form = new FormData();
+      for (const file of pendingFiles) form.append("file", file);
+      if (threadTs) form.append("threadTs", threadTs);
+      if (text.trim()) form.append("initialComment", text.trim());
 
-        const res = await fetch(`/api/conversations/${conversationId}/files`, { method: "POST", body: form });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
-          if (body?.error === "missing_scope") {
-            throw new Error(body.message ?? "Reconnect your Slack account to enable uploads.");
-          }
-          throw new Error("upload failed");
+      const res = await fetch(`/api/conversations/${conversationId}/files`, { method: "POST", body: form });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+        if (body?.error === "missing_scope") {
+          throw new Error(body.message ?? "Reconnect your Slack account to enable uploads.");
         }
+        if (body?.error === "file_too_large") throw new Error("Those files are too large — 25 MB max per message.");
+        if (body?.error === "too_many_files") throw new Error("You can attach up to 10 files per message.");
+        throw new Error("upload failed");
       }
       setPendingFiles([]);
       clear();

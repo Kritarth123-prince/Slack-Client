@@ -288,6 +288,7 @@ model UserPreference {
 
   quietHoursStart String? // "HH:mm", 24h, e.g. "22:00"
   quietHoursEnd   String? // "HH:mm", 24h, e.g. "07:00"
+  timezone        String? // IANA zone (e.g. "Europe/London") the quiet hours are expressed in; captured from the browser
 
   lowBandwidthMode Boolean @default(false)
 
@@ -317,4 +318,18 @@ model ProcessedSlackEvent {
   id          String   @id // Slack's event_id
   eventType   String
   processedAt DateTime @default(now())
+}
+
+// Open Graph metadata for a link seen in a message, fetched once by this server and cached so
+// every render of that link doesn't re-fetch the page. `failed` remembers unreachable/unparseable
+// URLs so they aren't retried on every poll.
+model LinkPreview {
+  id          String   @id @default(cuid())
+  url         String   @unique
+  title       String?
+  description String?
+  imageUrl    String?
+  siteName    String?
+  failed      Boolean  @default(false)
+  fetchedAt   DateTime @default(now())
 }
