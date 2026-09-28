@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth/session";
-import { prisma } from "@/lib/db/prisma";
 import { decryptToken } from "@/lib/slack/tokenCipher";
 import { logger } from "@/lib/logger";
+import { getActiveInstallation } from "@/lib/slack/installation";
 
 // Slack serves file content from these hosts; anything else is refused so this
 // route can't be used as an open proxy for arbitrary URLs.
@@ -25,10 +25,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "forbidden_host" }, { status: 400 });
   }
 
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return NextResponse.json({ error: "not_connected" }, { status: 409 });
 
   const token = decryptToken({

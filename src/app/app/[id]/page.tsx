@@ -6,7 +6,9 @@ import { conversationLabel } from "@/lib/slack/conversationLabel";
 import { extractSlackFiles } from "@/lib/slack/messageFiles";
 import { groupReactions } from "@/lib/slack/reactionGroups";
 import { listReaders } from "@/server/services/presenceSignals";
+import { getConversationSetting } from "@/server/services/conversationSettings";
 import { ConversationThread } from "./ConversationThread";
+import { getActiveInstallation } from "@/lib/slack/installation";
 
 export default async function ConversationPage({ params }: { params: Promise<{ id: string }> }) {
   const userId = await requireUserId();
@@ -19,10 +21,7 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
   });
   if (!conversation) notFound();
 
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) redirect("/");
 
   // Pulls anything newer than what's cached (cheap once caught up) so opening a conversation
@@ -48,16 +47,27 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
   const savedSet = new Set(savedMessageIds.map((s) => s.messageId));
   const userNames = Object.fromEntries(workspaceUsers.map((u) => [u.slackUserId, u.displayName]));
 
+  // Captured before the cursor is advanced below, so the view can draw its "New messages" line.
+  const previousRead = await prisma.readState.findUnique({
+    where: { userId_conversationId: { userId, conversationId: conversation.id } },
+    select: { lastReadTs: true },
+  });
+
   const lastTs = messages[messages.length - 1]?.slackTs;
   if (lastTs) await markConversationRead(userId, conversation.id, lastTs).catch(() => {});
 
-  const readers = await listReaders(conversation, userId);
+  const [readers, setting] = await Promise.all([
+    listReaders(conversation, userId),
+    getConversationSetting(userId, conversation.id),
+  ]);
 
   return (
     <ConversationThread
       conversationId={conversation.id}
       title={conversationLabel(conversation, installation.slackUserId)}
       initialReaders={readers}
+      initialLastReadTs={previousRead?.lastReadTs ?? null}
+      initialSetting={setting}
       initialMessages={messages.map((m) => ({
         id: m.id,
         slackTs: m.slackTs,

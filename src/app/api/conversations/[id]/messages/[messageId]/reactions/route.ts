@@ -3,6 +3,7 @@ import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { addReaction, removeReaction } from "@/lib/slack/sync";
 import { logger } from "@/lib/logger";
+import { getActiveInstallation } from "@/lib/slack/installation";
 
 export async function POST(
   request: NextRequest,
@@ -22,10 +23,7 @@ export async function POST(
   const emoji = typeof body?.emoji === "string" ? body.emoji : "";
   if (!emoji) return NextResponse.json({ error: "missing_emoji" }, { status: 400 });
 
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return NextResponse.json({ error: "not_connected" }, { status: 409 });
 
   const self = await prisma.slackUser.findUnique({

@@ -24,6 +24,10 @@ model User {
   sessions                Session[]
   savedMessages           SavedMessage[]
   drafts                  Draft[]
+  conversationSettings    ConversationSetting[]
+
+  // Which of this user's connected workspaces the app is currently showing. Null = most recent.
+  activeWorkspaceId String?
 }
 
 // Server-side session record backing the HttpOnly session cookie.
@@ -75,12 +79,27 @@ model Workspace {
   name            String
   domain          String?
   iconUrl         String?
+  emojiSyncedAt   DateTime? // last emoji.list sweep; custom emoji are refreshed at most daily
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   installations  SlackInstallation[]
   slackUsers     SlackUser[]
   conversations  Conversation[]
+  customEmoji    CustomEmoji[]
+}
+
+// A workspace's custom emoji (emoji.list), so :name: reactions and text render as the real image
+// instead of falling back to the shortcode. Aliases are resolved to the target image at sync time.
+model CustomEmoji {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  url         String
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, name])
 }
 
 // Cached profile info for Slack members, populated lazily as they are
@@ -142,6 +161,7 @@ model Conversation {
   readStates ReadState[]
   drafts     Draft[]
   typing     TypingIndicator[]
+  settings   ConversationSetting[]
 
   @@unique([workspaceId, slackConversationId])
   @@index([workspaceId, lastMessageAt])
@@ -320,6 +340,31 @@ model ProcessedSlackEvent {
   id          String   @id // Slack's event_id
   eventType   String
   processedAt DateTime @default(now())
+}
+
+// Per-user, per-conversation flags that Slack doesn't model for us: pinned conversations float to
+// the top of the list; muted ones drop out of push notifications and show no unread badge.
+model ConversationSetting {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  pinned         Boolean      @default(false)
+  muted          Boolean      @default(false)
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([userId, conversationId])
+}
+
+// A speech-to-text transcript for a voice note, keyed by Slack's file id so it's produced once per
+// file no matter how many times or by whom it's rendered.
+model VoiceTranscript {
+  id        String   @id @default(cuid())
+  fileId    String   @unique
+  text      String
+  language  String?
+  createdAt DateTime @default(now())
 }
 
 // "Who is typing right now" — app-local only. Slack never exposes typing over the Web API (it's

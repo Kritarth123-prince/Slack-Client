@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { SlackText } from "@/lib/slack/formatSlackText";
 import { emojiGlyph } from "@/lib/ui/emoji";
-import { EmojiGlyph } from "@/lib/ui/EmojiGlyph";
+import { EmojiGlyph, ReactionEmoji } from "@/lib/ui/EmojiGlyph";
+import { VoiceTranscript } from "@/components/conversation/VoiceTranscript";
+import { useRouter } from "next/navigation";
 import { avatarGradient, initials } from "@/lib/ui/avatar";
 import { EmojiPicker } from "@/components/composer/EmojiPicker";
 import { LinkPreviewCard } from "@/components/conversation/LinkPreviewCard";
@@ -41,6 +43,7 @@ function FileAttachment({ file }: { file: SlackFileView }) {
       <div className="mt-2 flex max-w-xs flex-col gap-1 rounded-xl border border-black/[.08] bg-white/60 px-3 py-2 text-sm shadow-sm dark:border-white/[.145] dark:bg-black/20">
         <span className="truncate font-medium">🎤 {file.name}</span>
         <audio controls src={file.proxyUrl} className="w-full" />
+        <VoiceTranscript fileId={file.id} proxyUrl={file.proxyUrl} />
       </div>
     );
   }
@@ -94,6 +97,7 @@ export function MessageBubble({
   forwardTargets,
   ensureForwardTargetsLoaded,
   onForwardTo,
+  onMarkUnread,
 }: {
   message: MessageView;
   userNames: Record<string, string>;
@@ -101,6 +105,7 @@ export function MessageBubble({
   replyCount?: number;
   seenBy?: string[];
   onOpenThread?: (rootTs: string) => void;
+  onMarkUnread?: (message: MessageView) => void;
   onReply: (message: MessageView) => void;
   onToggleReaction: (messageId: string, emoji: string) => void;
   onSaveEdit: (messageId: string, text: string) => void;
@@ -115,20 +120,71 @@ export function MessageBubble({
   const [fullPickerOpen, setFullPickerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [forwardOpen, setForwardOpen] = useState(false);
+  const [remindOpen, setRemindOpen] = useState(false);
+  const [remindOptions, setRemindOptions] = useState<{ label: string; time: number }[]>([]);
+  const [remindStatus, setRemindStatus] = useState<string | null>(null);
+  const [customRemindAt, setCustomRemindAt] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editingText, setEditingText] = useState(m.text);
+  const router = useRouter();
 
   function closePopovers() {
     setPickerOpen(false);
     setFullPickerOpen(false);
     setMenuOpen(false);
     setForwardOpen(false);
+    setRemindOpen(false);
   }
 
   const popoversRef = useClickOutside<HTMLDivElement>(
-    pickerOpen || menuOpen || forwardOpen,
+    pickerOpen || menuOpen || forwardOpen || remindOpen,
     closePopovers
   );
+
+  async function remindAt(time: number | string) {
+    setRemindStatus("Setting…");
+    try {
+      const res = await fetch("/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: m.id, time }),
+      });
+      if (res.ok) {
+        setRemindStatus("Reminder set ✓");
+        setTimeout(() => {
+          setRemindOpen(false);
+          setRemindStatus(null);
+        }, 900);
+        return;
+      }
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (body?.error === "missing_scope") {
+        setRemindStatus("Reconnect Slack to enable reminders.");
+        setTimeout(() => router.push("/app/settings"), 1500);
+      } else {
+        setRemindStatus("Couldn't set that reminder.");
+      }
+    } catch {
+      setRemindStatus("Couldn't set that reminder.");
+    }
+  }
+
+  function remindPresets(): { label: string; time: number }[] {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    const nextWeek = new Date(now);
+    nextWeek.setDate(nextWeek.getDate() + ((8 - nextWeek.getDay()) % 7 || 7));
+    nextWeek.setHours(9, 0, 0, 0);
+    return [
+      { label: "In 20 minutes", time: Math.floor(now.getTime() / 1000) + 20 * 60 },
+      { label: "In 1 hour", time: Math.floor(now.getTime() / 1000) + 60 * 60 },
+      { label: "In 3 hours", time: Math.floor(now.getTime() / 1000) + 3 * 60 * 60 },
+      { label: "Tomorrow at 09:00", time: Math.floor(tomorrow.getTime() / 1000) },
+      { label: "Next Monday at 09:00", time: Math.floor(nextWeek.getTime() / 1000) },
+    ];
+  }
   const previewUrl = m.isDeleted ? null : firstLinkIn(m.text);
 
   function pickReaction(entry: EmojiEntry) {
@@ -241,7 +297,7 @@ export function MessageBubble({
                   : "border-black/[.08] hover:bg-black/[.03] dark:border-white/[.145] dark:hover:bg-white/[.05]"
               }`}
             >
-              <EmojiGlyph glyph={emojiGlyph(r.emoji)} /> {r.count}
+              <ReactionEmoji name={r.emoji} /> {r.count}
             </button>
           ))}
           {!m.isDeleted && (
@@ -355,6 +411,27 @@ export function MessageBubble({
               >
                 🔖 {m.savedByMe ? "Unsave" : "Save for later"}
               </button>
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  setRemindOptions(remindPresets());
+                  setRemindOpen(true);
+                }}
+                className="px-3 py-1.5 text-left hover:bg-black/[.04] dark:hover:bg-white/[.05]"
+              >
+                ⏰ Remind me
+              </button>
+              {context === "feed" && onMarkUnread && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onMarkUnread(m);
+                  }}
+                  className="px-3 py-1.5 text-left hover:bg-black/[.04] dark:hover:bg-white/[.05]"
+                >
+                  ✉️ Mark unread from here
+                </button>
+              )}
               {m.isSelf && (
                 <button
                   onClick={() => {
@@ -366,6 +443,43 @@ export function MessageBubble({
                   🗑️ Delete
                 </button>
               )}
+            </div>
+          )}
+
+          {remindOpen && (
+            <div
+              className={`card-surface absolute bottom-full z-20 mb-1 flex w-60 max-w-[85vw] flex-col rounded-xl py-1 text-sm ${
+                m.isSelf ? "right-0" : "left-0"
+              }`}
+            >
+              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                ⏰ Remind me about this
+              </div>
+              {remindOptions.map((p) => (
+                <button
+                  key={p.label}
+                  onClick={() => remindAt(p.time)}
+                  className="px-3 py-1.5 text-left hover:bg-black/[.04] dark:hover:bg-white/[.05]"
+                >
+                  {p.label}
+                </button>
+              ))}
+              <div className="flex items-center gap-1 border-t border-black/[.06] px-3 py-1.5 dark:border-white/[.08]">
+                <input
+                  type="datetime-local"
+                  value={customRemindAt}
+                  onChange={(e) => setCustomRemindAt(e.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border border-black/[.08] bg-transparent px-1.5 py-1 text-xs dark:border-white/[.145]"
+                />
+                <button
+                  disabled={!customRemindAt}
+                  onClick={() => remindAt(Math.floor(new Date(customRemindAt).getTime() / 1000))}
+                  className="btn-primary shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  Set
+                </button>
+              </div>
+              {remindStatus && <div className="px-3 pb-1.5 text-xs text-zinc-500 dark:text-zinc-400">{remindStatus}</div>}
             </div>
           )}
 

@@ -10,6 +10,8 @@ export interface ConversationListItem {
   label: string;
   unread: boolean;
   unreadCount: number;
+  pinned: boolean;
+  muted: boolean;
   type: "PUBLIC_CHANNEL" | "PRIVATE_CHANNEL" | "DM" | "GROUP_DM";
   avatarUrl: string | null;
 }
@@ -126,12 +128,26 @@ export function ConversationList({ initial, compact = false }: { initial: Conver
               <ConversationAvatar item={c} compact={compact} />
               <span
                 className={`min-w-0 flex-1 truncate ${compact ? "text-sm" : ""} ${
-                  c.unread || active ? "font-semibold text-black dark:text-zinc-50" : "text-zinc-700 dark:text-zinc-300"
+                  c.muted
+                    ? "text-zinc-400 dark:text-zinc-500"
+                    : c.unread || active
+                      ? "font-semibold text-black dark:text-zinc-50"
+                      : "text-zinc-700 dark:text-zinc-300"
                 }`}
               >
                 {c.label}
               </span>
-              {c.unread && <UnreadBadge count={c.unreadCount} />}
+              {c.pinned && (
+                <span className="shrink-0 text-[11px] text-zinc-400 dark:text-zinc-500" title="Pinned" aria-label="Pinned">
+                  ★
+                </span>
+              )}
+              {c.muted && (
+                <span className="shrink-0 text-[11px] text-zinc-400 dark:text-zinc-500" title="Muted" aria-label="Muted">
+                  🔕
+                </span>
+              )}
+              {c.unread && !c.muted && <UnreadBadge count={c.unreadCount} />}
             </Link>
           </li>
         );

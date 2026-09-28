@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WebClient } from "@slack/web-api";
 import { getEnv } from "@/lib/env";
-import { getSession, createUserSession } from "@/lib/auth/session";
+import { getSession, createUserSession, requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { encryptToken } from "@/lib/slack/tokenCipher";
 import { logger } from "@/lib/logger";
@@ -81,7 +81,11 @@ export async function GET(request: NextRequest) {
     where: { workspaceId_slackUserId: { workspaceId: workspace.id, slackUserId } },
   });
 
-  const userId = existingInstallation?.userId ?? (await prisma.user.create({ data: {} })).id;
+  // "Add another workspace" runs this flow while already signed in: attach the new installation
+  // to that account rather than creating a second one. A Slack identity that's already linked
+  // stays with the account that owns it.
+  const signedInUserId = await requireUserId();
+  const userId = existingInstallation?.userId ?? signedInUserId ?? (await prisma.user.create({ data: {} })).id;
 
   const { ciphertext, iv, authTag } = encryptToken(result.authed_user.access_token);
 
@@ -111,6 +115,9 @@ export async function GET(request: NextRequest) {
     update: {},
     create: { userId },
   });
+
+  // Whatever workspace was just authorised becomes the one the app shows.
+  await prisma.user.update({ where: { id: userId }, data: { activeWorkspaceId: workspace.id } });
 
   await createUserSession(userId, {
     userAgent: request.headers.get("user-agent") ?? undefined,

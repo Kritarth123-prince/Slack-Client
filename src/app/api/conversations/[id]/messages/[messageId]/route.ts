@@ -3,6 +3,7 @@ import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { editMessage, deleteMessage } from "@/lib/slack/sync";
 import { logger } from "@/lib/logger";
+import { getActiveInstallation } from "@/lib/slack/installation";
 
 async function loadOwnMessage(userId: string, conversationId: string, messageId: string) {
   const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
@@ -11,10 +12,7 @@ async function loadOwnMessage(userId: string, conversationId: string, messageId:
   const message = await prisma.message.findFirst({ where: { id: messageId, conversationId: conversation.id } });
   if (!message) return { error: NextResponse.json({ error: "not_found" }, { status: 404 }) } as const;
 
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return { error: NextResponse.json({ error: "not_connected" }, { status: 409 }) } as const;
 
   const self = await prisma.slackUser.findUnique({

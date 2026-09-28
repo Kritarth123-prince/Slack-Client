@@ -9,6 +9,8 @@ export interface EmojiEntry {
   name: string;
   glyph: string;
   keywords: string[];
+  /** Set for a workspace's custom emoji, which are images rather than glyphs. */
+  url?: string;
 }
 
 export const EMOJI_LIST: EmojiEntry[] = [
@@ -615,6 +617,11 @@ const EMOJI_BY_NAME = new Map(EMOJI_LIST.map((e) => [e.name, e]));
 
 export function emojiGlyph(name: string): string {
   return EMOJI_BY_NAME.get(name)?.glyph ?? `:${name}:`;
+}
+
+/** The glyph for a standard shortcode, or null when it isn't in the curated set (e.g. a custom workspace emoji). */
+export function lookupEmojiGlyph(name: string): string | null {
+  return EMOJI_BY_NAME.get(name)?.glyph ?? null;
 }
 
 export function searchEmoji(query: string, limit = 60): EmojiEntry[] {

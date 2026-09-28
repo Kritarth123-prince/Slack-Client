@@ -3,8 +3,8 @@ import { redirect } from "next/navigation";
 import { Search, Bookmark, Settings } from "lucide-react";
 import { requireUserId } from "@/lib/auth/session";
 import { loadConversationList } from "@/server/services/conversations";
-import { getWorkspaceBranding } from "@/server/services/workspace";
-import { WorkspaceBadge } from "@/components/sidebar/WorkspaceBadge";
+import { listWorkspaces } from "@/lib/slack/installation";
+import { WorkspaceSwitcher } from "@/components/sidebar/WorkspaceSwitcher";
 import { ConversationList } from "./ConversationList";
 import { NotificationSetup } from "./NotificationSetup";
 import { StatusMenu } from "./StatusMenu";
@@ -19,14 +19,14 @@ export default async function AppHome() {
   const userId = await requireUserId();
   if (!userId) redirect("/");
 
-  const [items, branding] = await Promise.all([loadConversationList(userId), getWorkspaceBranding(userId)]);
+  const [items, workspaces] = await Promise.all([loadConversationList(userId), listWorkspaces(userId)]);
 
   return (
     <>
       {/* Phones: the list is the whole screen. Desktop has it in the sidebar, so it isn't repeated here. */}
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-3 sm:p-6 md:hidden">
         <div className="flex items-center justify-between gap-3">
-          <WorkspaceBadge branding={branding} size="lg" />
+          <WorkspaceSwitcher workspaces={workspaces} />
           <div className="flex shrink-0 items-center gap-1">
             {NAV.map(({ href, label, Icon }) => (
               <Link

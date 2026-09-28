@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { getSlackClientForUser } from "@/lib/slack/client";
 import { conversationLabel } from "@/lib/slack/conversationLabel";
+import { getActiveInstallation } from "@/lib/slack/installation";
 
 export interface SearchResultView {
   id: string;
@@ -24,10 +25,7 @@ const RESULT_COUNT = 30;
 
 /** Runs Slack's own search.messages and maps matches back onto locally cached conversations/messages so results can deep-link into the app. */
 export async function searchMessages(userId: string, query: string): Promise<SearchOutcome> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return { results: [], total: 0, error: "failed" };
 
   let matches;

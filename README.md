@@ -9,9 +9,14 @@ It exists because Slack's official web/desktop client doesn't run well (or at al
 **Messaging**
 - Channels, private channels, DMs, and group DMs, synced from your real workspace
 - Send, edit, and delete your own messages; `@mention` autocomplete
-- Slack-formatted text rendering (mentions, channel refs, links, bold/italic/strike/code)
+- Multi-line composer: Enter sends, Shift+Enter adds a line; bold/italic/strike/code/quote via a toolbar or Ctrl+B / Ctrl+I / Ctrl+Shift+X / Ctrl+E / Ctrl+Shift+.
+- Send later — a clock button schedules the message via Slack's `chat.scheduleMessage`; queued messages are listed above the composer and can be cancelled
+- Slack-formatted text rendering (mentions, channel refs, links, quotes, bold/italic/strike/code, `:emoji:` shortcodes)
 - Link previews — the first URL in a message unfurls into a title/description/image card
-- Numeric unread counts per conversation, not just a dot
+- "New messages" divider at your last-read point when you open a chat, and "Mark unread from here" in a message's menu
+- Numeric unread counts per conversation, not just a dot; pin favourites to the top and mute chats you don't want notifications from
+- Ctrl+K quick switcher — jump to any conversation by typing part of its name
+- "Remind me about this" on any message (in 20 min / 1 h / 3 h / tomorrow / next week / custom) via Slack's own reminders
 
 **Threads**
 - Root messages show a "💬 N replies" pill; opening it slides in a dedicated thread panel with its own composer
@@ -20,12 +25,14 @@ It exists because Slack's official web/desktop client doesn't run well (or at al
 
 **Reactions & emoji**
 - Searchable emoji picker with 570+ emoji across smileys, gestures, hearts, symbols, objects, nature, food, activities, and 60+ flags — plus a one-click quick-react row
+- Your workspace's custom emoji (from `emoji.list`) appear in the picker, in reactions, and inline in message text
 - Flags render as images on every platform (Windows has no native flag glyphs), so 🇮🇳 never shows up as "IN"
 - Toggle your own reaction on/off; see everyone else's counts live
 
 **Files & voice notes**
-- Attach one or many files from the composer; several files go out as a single message with a caption
+- Attach files from the composer, paste a screenshot with Ctrl+V, or drag and drop several files onto the conversation; they go out as a single message with a caption
 - Record a voice note in the browser, preview it with a player, then send or discard
+- Optional voice-note transcription: point `TRANSCRIPTION_API_URL` at any OpenAI-style speech-to-text endpoint (Whisper, Groq, a local server, or your own Hindi/Hinglish ASR model) and transcripts appear under each voice note
 - Everything is previewed before it's sent — nothing uploads until you press Send
 - Images render inline, audio gets an inline player (with seeking that works on iOS), everything else a download card
 - Uploads go through Slack's real file-upload API, so they show up in Slack for everyone else too
@@ -38,8 +45,10 @@ It exists because Slack's official web/desktop client doesn't run well (or at al
 - Full-text search over your workspace via Slack's own `search.messages`, with results deep-linking straight into the conversation
 
 **Sidebar & navigation**
-- On desktop, a persistent sidebar (workspace name/icon, search, saved, settings, status, live conversation list) sits beside whichever conversation is open; on phones the list is its own screen
+- On desktop, a persistent sidebar (workspace switcher, search, saved, settings, status, live conversation list) sits beside whichever conversation is open; on phones the list is its own screen
 - Real workspace name and icon from `team.info` instead of a generic header
+- Multiple workspaces: connect another workspace from the switcher and flip between them; each keeps its own token, conversations and settings
+- Installable as an app (PWA) with offline support — recently opened conversations and the conversation list still load without a network
 
 **Settings**
 - Display name (pushed to your real Slack profile), theme (System / Light / Dark), message density
@@ -87,7 +96,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000), sign in with Slack, and authorise the app.
 
-> **Adding scopes later:** whenever `src/lib/slack/scopes.ts` gains a scope (file uploads needed `files:write`, for example), add it under *User Token Scopes* in your Slack App's config **and** reconnect from *Settings → Reconnect Slack*. Until both are done, that feature shows a "reconnect" prompt rather than failing silently.
+> **Adding scopes later:** whenever `src/lib/slack/scopes.ts` gains a scope (`files:write` for uploads, `reminders:write` for reminders, `emoji:read` for custom emoji), add it under *User Token Scopes* in your Slack App's config **and** reconnect from *Settings → Reconnect Slack*. Until both are done, that feature shows a "reconnect" prompt rather than failing silently.
 
 ## Environment variables
 
@@ -102,6 +111,7 @@ All variables are validated on startup (`src/lib/env.ts`) — the app refuses to
 | `SESSION_SECRET` | 32+ byte random string — `openssl rand -base64 32` |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push keys — `npx web-push generate-vapid-keys` |
 | `TOKEN_ENCRYPTION_KEY` | 32-byte base64 key used to encrypt Slack tokens at rest — `openssl rand -base64 32` |
+| `TRANSCRIPTION_API_URL`, `TRANSCRIPTION_API_KEY`, `TRANSCRIPTION_MODEL`, `TRANSCRIPTION_LANGUAGE` | Optional — an OpenAI-compatible `/v1/audio/transcriptions` endpoint for voice-note transcripts (unset = off) |
 
 Setting up the Slack App itself (OAuth redirect URL, scopes, event subscriptions) is covered step by step in [`docs/slack-app-setup.md`](./docs/slack-app-setup.md).
 
@@ -129,12 +139,15 @@ src/
   components/
     sidebar/             Sidebar, WorkspaceBadge
     conversation/        MessageBubble, LinkPreviewCard, TypingLine
-    composer/            Composer (text, @mentions, emoji, attach, voice notes), EmojiPicker
+    composer/            Composer (multi-line text, formatting, @mentions, emoji, attach/paste/drop,
+                         voice notes, send later), EmojiPicker, ScheduledList
     thread/              ThreadPanel
     search/              SearchPanel
     settings/            SettingsForm
+    pwa/                 service worker registration
   hooks/                 useDraft, useAudioRecorder, useClickOutside
-  server/services/       conversations, search, workspace, preferences, linkPreview, presenceSignals
+  server/services/       conversations, search, workspace, preferences, linkPreview, presenceSignals,
+                         scheduled, reminders, customEmoji, transcription, conversationSettings
   lib/
     slack/               Slack client, sync (history, threads, uploads, reactions, events), scopes,
                          text formatting, file/link helpers, presence
@@ -149,6 +162,7 @@ docs/                    slack-app-setup.md, TECHNICAL.md, project overview (.do
 
 - **Typing indicators and read receipts are app-local.** Slack only emits typing over RTM/Socket Mode (not the Web API), and never exposes per-user read state to anyone. Both features here are backed by this app's own tables, so they show what other users of *this client* are doing — never what someone is doing in Slack's official apps. They are labelled as such in the UI.
 - **History depth.** Each conversation syncs the most recent messages on first open (and everything newer after that); there's no "load older" pagination yet, so search results for very old messages open the conversation without scrolling to the exact message.
-- **Custom workspace emoji** aren't rendered — an unknown reaction name falls back to `:name:` text.
+- **Voice-note transcription needs an endpoint.** Nothing is bundled — set `TRANSCRIPTION_API_URL` (and a key if the service needs one) or the feature stays hidden.
 - **Flag emoji are loaded from a CDN** (Twemoji SVGs via jsDelivr), because Windows has no native flag glyphs. Offline, flags fall back to the alt text.
+- **Offline mode is read-only.** The service worker serves cached pages and the last fetched messages; sending, reacting and uploading need a connection.
 - **Link previews** are fetched by the server from the linked site; sites that block bots or have no Open Graph tags simply don't get a card.

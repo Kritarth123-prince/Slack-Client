@@ -2,8 +2,8 @@ import Link from "next/link";
 import { Search, Bookmark, Settings } from "lucide-react";
 import { ConversationList, type ConversationListItem } from "@/app/app/ConversationList";
 import { StatusMenu } from "@/app/app/StatusMenu";
-import { WorkspaceBadge } from "@/components/sidebar/WorkspaceBadge";
-import type { WorkspaceBranding } from "@/server/services/workspace";
+import { WorkspaceSwitcher } from "@/components/sidebar/WorkspaceSwitcher";
+import type { WorkspaceOption } from "@/lib/slack/installation";
 
 const NAV = [
   { href: "/app/search", label: "Search", Icon: Search },
@@ -11,12 +11,12 @@ const NAV = [
   { href: "/app/settings", label: "Settings", Icon: Settings },
 ] as const;
 
-/** Desktop-only persistent sidebar: workspace branding, quick nav, status, and the live conversation list. */
-export function Sidebar({ items, branding }: { items: ConversationListItem[]; branding: WorkspaceBranding | null }) {
+/** Desktop-only persistent sidebar: workspace switcher, quick nav, status, and the live conversation list. */
+export function Sidebar({ items, workspaces }: { items: ConversationListItem[]; workspaces: WorkspaceOption[] }) {
   return (
     <aside className="hidden w-72 shrink-0 flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_70%,transparent)] md:flex">
-      <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-        <WorkspaceBadge branding={branding} />
+      <div className="px-3 pt-3 pb-1">
+        <WorkspaceSwitcher workspaces={workspaces} />
       </div>
 
       <nav className="flex items-center gap-1 px-3 py-2" aria-label="Primary">
@@ -39,6 +39,11 @@ export function Sidebar({ items, branding }: { items: ConversationListItem[]; br
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-4">
         <ConversationList initial={items} compact />
       </div>
+
+      <p className="border-t border-[var(--border)] px-4 py-2 text-[11px] text-zinc-400 dark:text-zinc-500">
+        <kbd className="rounded border border-black/[.1] px-1 dark:border-white/[.15]">Ctrl</kbd> +{" "}
+        <kbd className="rounded border border-black/[.1] px-1 dark:border-white/[.15]">K</kbd> to jump to a conversation
+      </p>
     </aside>
   );
 }

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { getSlackClientForUser } from "@/lib/slack/client";
 import { logger } from "@/lib/logger";
+import { getActiveInstallation } from "@/lib/slack/installation";
 
 export type Theme = "system" | "light" | "dark";
 export type Density = "comfortable" | "compact";
@@ -36,10 +37,7 @@ export interface UpdatePreferencesInput {
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 async function selfSlackUser(userId: string) {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return null;
   return prisma.slackUser.findUnique({
     where: {

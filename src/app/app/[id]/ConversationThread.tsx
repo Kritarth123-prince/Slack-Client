@@ -1,13 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { Bell, BellOff, Star } from "lucide-react";
 import { MessageBubble } from "@/components/conversation/MessageBubble";
-import { Composer } from "@/components/composer/Composer";
+import { Composer, type ComposerHandle } from "@/components/composer/Composer";
+import { ScheduledList } from "@/components/composer/ScheduledList";
 import { ThreadPanel } from "@/components/thread/ThreadPanel";
 import { TypingLine } from "@/components/conversation/TypingLine";
+import { CustomEmojiProvider } from "@/lib/ui/customEmoji";
 import type { ForwardTarget, Member, MessageView } from "@/types/chat";
 import type { TypingView, ReaderView } from "@/server/services/presenceSignals";
+import type { ConversationSettingView } from "@/server/services/conversationSettings";
 
 const POLL_INTERVAL_MS = 4000;
 const NOTIFY_SYNC_INTERVAL_MS = 15000;
@@ -30,18 +35,30 @@ export function ConversationThread({
   initialMessages,
   initialUserNames,
   initialReaders = [],
+  initialLastReadTs = null,
+  initialSetting = { pinned: false, muted: false },
 }: {
   conversationId: string;
   title: string;
   initialMessages: MessageView[];
   initialUserNames: Record<string, string>;
   initialReaders?: ReaderView[];
+  /** The read cursor as it was before this open — the "New messages" line goes just after it. */
+  initialLastReadTs?: string | null;
+  initialSetting?: ConversationSettingView;
 }) {
+  const router = useRouter();
   const [messages, setMessages] = useState<MessageView[]>(initialMessages);
   const [userNames, setUserNames] = useState<Record<string, string>>(initialUserNames);
   const [typing, setTyping] = useState<TypingView[]>([]);
   const [readers, setReaders] = useState<ReaderView[]>(initialReaders);
+  const [setting, setSetting] = useState<ConversationSettingView>(initialSetting);
+  const [scheduledRefresh, setScheduledRefresh] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const composerRef = useRef<ComposerHandle | null>(null);
+  // Fixed for the life of this view so the divider doesn't jump as the poll advances the cursor.
+  const [newMessagesAfterTs] = useState(initialLastReadTs);
 
   const [members, setMembers] = useState<Member[]>([]);
   const membersRequested = useRef(false);
@@ -218,6 +235,54 @@ export function ConversationThread({
     document.getElementById(`message-${messageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  async function updateSetting(patch: Partial<ConversationSettingView>) {
+    setSetting((s) => ({ ...s, ...patch }));
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        setSetting(await res.json());
+        router.refresh();
+      }
+    } catch {
+      // transient failure — the toggle just won't stick this time
+    }
+  }
+
+  // "Mark unread from here" moves the read cursor to just before this message and leaves the
+  // conversation — staying would re-mark it read on the next poll.
+  async function markUnreadFrom(m: MessageView) {
+    const feed = messages.filter((x) => !x.threadTs || x.threadTs === x.slackTs);
+    const index = feed.findIndex((x) => x.id === m.id);
+    const previous = index > 0 ? feed[index - 1].slackTs : "0";
+    try {
+      await fetch(`/api/conversations/${conversationId}/read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lastReadTs: previous }),
+      });
+    } finally {
+      router.push("/app");
+      router.refresh();
+    }
+  }
+
+  function handleDragOver(e: DragEvent<HTMLDivElement>) {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    setDragging(true);
+  }
+
+  function handleDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragging(false);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length > 0) composerRef.current?.addFiles(files);
+  }
+
   const pinnedMessages = messages.filter((m) => m.pinned && !m.isDeleted);
 
   // Replies are grouped by their thread's root ts and hidden from the main feed — they only show
@@ -273,8 +338,27 @@ export function ConversationThread({
     onForwardTo: forwardTo,
   };
 
+  // Index of the first feed message past the read cursor from before this open, if any.
+  const firstNewIndex =
+    newMessagesAfterTs === null
+      ? -1
+      : feedMessages.findIndex((m) => m.slackTs > newMessagesAfterTs && !m.isSelf);
+
   return (
-    <div className="mx-auto flex h-full w-full max-w-2xl flex-col overflow-x-hidden p-3 sm:p-6">
+    <CustomEmojiProvider>
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={() => setDragging(false)}
+      onDrop={handleDrop}
+      className={`relative mx-auto flex h-full w-full max-w-2xl flex-col overflow-x-hidden p-3 sm:p-6 ${
+        dragging ? "ring-2 ring-inset ring-[var(--brand-from)]" : ""
+      }`}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[color-mix(in_srgb,var(--brand-from)_8%,transparent)] text-sm font-semibold text-[var(--brand-from)]">
+          Drop files to attach
+        </div>
+      )}
       <div className="mb-4 flex items-center gap-2 sm:gap-3">
         <Link
           href="/app"
@@ -283,7 +367,31 @@ export function ConversationThread({
         >
           ←
         </Link>
-        <h1 className="gradient-text flex-1 truncate text-lg font-bold">{title}</h1>
+        <h1 className="gradient-text min-w-0 flex-1 truncate text-lg font-bold">{title}</h1>
+        <button
+          type="button"
+          onClick={() => updateSetting({ pinned: !setting.pinned })}
+          aria-pressed={setting.pinned}
+          aria-label={setting.pinned ? "Unpin conversation" : "Pin conversation to the top"}
+          title={setting.pinned ? "Unpin conversation" : "Pin conversation to the top"}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-black/[.04] dark:hover:bg-white/[.06] ${
+            setting.pinned ? "text-amber-500" : "text-zinc-500 dark:text-zinc-400"
+          }`}
+        >
+          <Star size={18} fill={setting.pinned ? "currentColor" : "none"} />
+        </button>
+        <button
+          type="button"
+          onClick={() => updateSetting({ muted: !setting.muted })}
+          aria-pressed={setting.muted}
+          aria-label={setting.muted ? "Unmute conversation" : "Mute conversation"}
+          title={setting.muted ? "Unmute notifications" : "Mute notifications"}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-black/[.04] dark:hover:bg-white/[.06] ${
+            setting.muted ? "text-red-500" : "text-zinc-500 dark:text-zinc-400"
+          }`}
+        >
+          {setting.muted ? <BellOff size={18} /> : <Bell size={18} />}
+        </button>
         <Link
           href="/app/saved"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-black/[.04] dark:text-zinc-400 dark:hover:bg-white/[.06]"
@@ -314,20 +422,30 @@ export function ConversationThread({
       )}
 
       <div ref={scrollRef} onScroll={handleScroll} className="message-feed flex-1 overflow-y-auto overflow-x-hidden px-1 py-2">
-        {feedMessages.map((m) => (
-          <MessageBubble
-            key={m.id}
-            message={m}
-            context="feed"
-            replyCount={repliesByThread.get(m.slackTs)?.length ?? 0}
-            seenBy={seenByMessageId.get(m.id)}
-            onOpenThread={setOpenThreadTs}
-            {...bubbleProps}
-          />
+        {feedMessages.map((m, i) => (
+          <div key={m.id} className="contents">
+            {i === firstNewIndex && (
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-red-500" role="separator">
+                <span className="h-px flex-1 bg-red-500/40" />
+                New messages
+                <span className="h-px flex-1 bg-red-500/40" />
+              </div>
+            )}
+            <MessageBubble
+              message={m}
+              context="feed"
+              replyCount={repliesByThread.get(m.slackTs)?.length ?? 0}
+              seenBy={seenByMessageId.get(m.id)}
+              onOpenThread={setOpenThreadTs}
+              onMarkUnread={markUnreadFrom}
+              {...bubbleProps}
+            />
+          </div>
         ))}
       </div>
 
       <div className="mt-3">
+        <ScheduledList conversationId={conversationId} refreshKey={scheduledRefresh} />
         <TypingLine names={rootTypingNames} />
         <Composer
           key={conversationId}
@@ -335,6 +453,8 @@ export function ConversationThread({
           members={members}
           ensureMembersLoaded={ensureMembersLoaded}
           onSent={refresh}
+          onScheduled={() => setScheduledRefresh((n) => n + 1)}
+          attachRef={composerRef}
         />
       </div>
 
@@ -362,5 +482,6 @@ export function ConversationThread({
         />
       )}
     </div>
+    </CustomEmojiProvider>
   );
 }

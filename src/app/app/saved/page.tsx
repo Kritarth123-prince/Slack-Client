@@ -3,15 +3,13 @@ import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { conversationLabel } from "@/lib/slack/conversationLabel";
+import { getActiveInstallation } from "@/lib/slack/installation";
 
 export default async function SavedMessagesPage() {
   const userId = await requireUserId();
   if (!userId) redirect("/");
 
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
 
   const saved = await prisma.savedMessage.findMany({
     where: { userId },

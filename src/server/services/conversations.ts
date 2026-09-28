@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { prisma } from "@/lib/db/prisma";
 import { conversationLabel, conversationAvatarUrl } from "@/lib/slack/conversationLabel";
+import { getActiveInstallation } from "@/lib/slack/installation";
 import { syncConversationsForUser } from "@/lib/slack/sync";
 import { syncWorkspaceBranding } from "@/server/services/workspace";
 import { logger } from "@/lib/logger";
@@ -10,6 +11,8 @@ export interface ConversationListItem {
   label: string;
   unread: boolean;
   unreadCount: number;
+  pinned: boolean;
+  muted: boolean;
   type: "PUBLIC_CHANNEL" | "PRIVATE_CHANNEL" | "DM" | "GROUP_DM";
   avatarUrl: string | null;
 }
@@ -18,21 +21,20 @@ export interface ConversationListItem {
  * The conversation list with real unread counts. A conversation is "unread" when its latest
  * message is past the user's read cursor; the count is how many messages from other people have
  * arrived since that cursor (capped by what's cached locally, which is all the UI can show anyway).
+ * Pinned conversations come first, in their usual recency order.
  */
 export async function getConversationListItems(userId: string): Promise<ConversationListItem[]> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return [];
 
-  const [conversations, readStates, self] = await Promise.all([
+  const [conversations, readStates, settings, self] = await Promise.all([
     prisma.conversation.findMany({
       where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
       orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }],
       include: { members: { include: { slackUser: true } } },
     }),
     prisma.readState.findMany({ where: { userId } }),
+    prisma.conversationSetting.findMany({ where: { userId } }),
     prisma.slackUser.findUnique({
       where: {
         workspaceId_slackUserId: { workspaceId: installation.workspaceId, slackUserId: installation.slackUserId },
@@ -41,6 +43,7 @@ export async function getConversationListItems(userId: string): Promise<Conversa
   ]);
 
   const readMap = new Map(readStates.map((r) => [r.conversationId, r.lastReadTs]));
+  const settingMap = new Map(settings.map((s) => [s.conversationId, s]));
 
   const unreadConversations = conversations.filter((c) => {
     const lastRead = readMap.get(c.id);
@@ -64,18 +67,23 @@ export async function getConversationListItems(userId: string): Promise<Conversa
         });
   const countMap = new Map(counts.map((row) => [row.conversationId, row._count._all]));
 
-  return conversations.map((c) => {
+  const items = conversations.map((c) => {
     const lastRead = readMap.get(c.id);
     const unread = Boolean(c.lastMessageTs) && (!lastRead || lastRead < c.lastMessageTs!);
+    const setting = settingMap.get(c.id);
     return {
       id: c.id,
       label: conversationLabel(c, installation.slackUserId),
       unread,
       unreadCount: unread ? (countMap.get(c.id) ?? 0) : 0,
+      pinned: setting?.pinned ?? false,
+      muted: setting?.muted ?? false,
       type: c.type,
       avatarUrl: conversationAvatarUrl(c, installation.slackUserId),
     };
   });
+
+  return [...items.filter((i) => i.pinned), ...items.filter((i) => !i.pinned)];
 }
 
 /**

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
-import { getSlackClientForUser } from "@/lib/slack/client";
+import { getSlackClientForWorkspace } from "@/lib/slack/client";
+import { getActiveInstallation } from "@/lib/slack/installation";
 import { logger } from "@/lib/logger";
 
 const REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -15,11 +16,7 @@ export interface WorkspaceBranding {
  * fetched or the row is a day old, so this doesn't add a Slack call to every conversation-list load.
  */
 export async function syncWorkspaceBranding(userId: string): Promise<void> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-    include: { workspace: true },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return;
 
   const { workspace } = installation;
@@ -27,7 +24,7 @@ export async function syncWorkspaceBranding(userId: string): Promise<void> {
   if (fresh) return;
 
   try {
-    const client = await getSlackClientForUser(userId);
+    const client = await getSlackClientForWorkspace(userId, workspace.id);
     const res = await client.team.info();
     const team = res.team;
     if (!team) return;
@@ -46,11 +43,7 @@ export async function syncWorkspaceBranding(userId: string): Promise<void> {
 }
 
 export async function getWorkspaceBranding(userId: string): Promise<WorkspaceBranding | null> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-    include: { workspace: true },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return null;
 
   const { workspace } = installation;

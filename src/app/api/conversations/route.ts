@@ -1,18 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth/session";
-import { prisma } from "@/lib/db/prisma";
 import { syncAllConversationsAndNotify } from "@/lib/slack/sync";
 import { getConversationListItems } from "@/server/services/conversations";
 import { logger } from "@/lib/logger";
+import { getActiveInstallation } from "@/lib/slack/installation";
 
 export async function GET() {
   const userId = await requireUserId();
   if (!userId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return NextResponse.json({ error: "not_connected" }, { status: 409 });
 
   // Catches up every conversation (and pushes a notification for new messages) so unread

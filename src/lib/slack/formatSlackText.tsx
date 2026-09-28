@@ -1,5 +1,7 @@
+"use client";
+
 import type { ReactNode } from "react";
-import { TextWithFlags } from "@/lib/ui/EmojiGlyph";
+import { EmojiText } from "@/lib/ui/EmojiGlyph";
 
 type Token =
   | { type: "text"; value: string }
@@ -19,6 +21,8 @@ type InlineSegment =
 const TOKEN_RE = /<([^>]+)>/g;
 const CODE_BLOCK_RE = /```([\s\S]*?)```/g;
 const INLINE_RE = /`([^`\n]+)`|\*([^*\n]+)\*|_([^_\n]+)_|~([^~\n]+)~/g;
+// A quoted line as Slack sends it (`&gt;` once escaped) or as typed here.
+const QUOTE_LINE_RE = /^(?:&gt;|>)\s?/;
 
 function unescapeSlackText(value: string): string {
   return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
@@ -108,13 +112,25 @@ function renderInline(text: string, key: string): ReactNode {
     const k = `${key}-${i}`;
     switch (seg.type) {
       case "text":
-        return <TextWithFlags key={k} text={seg.value} />;
+        return <EmojiText key={k} text={seg.value} />;
       case "bold":
-        return <strong key={k}>{seg.value}</strong>;
+        return (
+          <strong key={k}>
+            <EmojiText text={seg.value} />
+          </strong>
+        );
       case "italic":
-        return <em key={k}>{seg.value}</em>;
+        return (
+          <em key={k}>
+            <EmojiText text={seg.value} />
+          </em>
+        );
       case "strike":
-        return <s key={k}>{seg.value}</s>;
+        return (
+          <s key={k}>
+            <EmojiText text={seg.value} />
+          </s>
+        );
       case "code":
         return (
           <code key={k} className="rounded bg-black/[.06] px-1 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
@@ -125,60 +141,101 @@ function renderInline(text: string, key: string): ReactNode {
   });
 }
 
-/** Renders Slack's mrkdwn text: emphasis, code (blocks), mentions, channel refs, links, @here/@channel. */
-export function SlackText({ text, userNames }: { text: string; userNames: Record<string, string> }): ReactNode {
-  const tokens = parseSlackText(text);
+function renderTokens(tokens: Token[], userNames: Record<string, string>, keyPrefix: string): ReactNode {
+  return tokens.map((tok, i) => {
+    const key = `${keyPrefix}-${i}`;
+    switch (tok.type) {
+      case "text":
+        return <span key={key}>{renderInline(tok.value, key)}</span>;
+      case "codeblock":
+        return (
+          <pre
+            key={key}
+            className="my-1 overflow-x-auto rounded-lg bg-black/[.06] p-2 font-mono text-[0.85em] dark:bg-white/[.08]"
+          >
+            {tok.value}
+          </pre>
+        );
+      case "mention":
+        return (
+          <span key={key} className="rounded bg-blue-500/10 px-1 font-medium text-blue-600 dark:text-blue-400">
+            @{userNames[tok.id] ?? tok.label ?? tok.id}
+          </span>
+        );
+      case "channel":
+        return (
+          <span key={key} className="font-medium text-blue-600 dark:text-blue-400">
+            #{tok.label ?? tok.id}
+          </span>
+        );
+      case "broadcast":
+        return (
+          <span key={key} className="rounded bg-amber-500/10 px-1 font-medium text-amber-600 dark:text-amber-400">
+            @{tok.value}
+          </span>
+        );
+      case "link":
+        return (
+          <a
+            key={key}
+            href={tok.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 underline dark:text-blue-400"
+          >
+            {tok.label}
+          </a>
+        );
+    }
+  });
+}
 
-  return (
-    <div className="whitespace-pre-wrap break-words">
-      {tokens.map((tok, i) => {
-        switch (tok.type) {
-          case "text":
-            return <span key={i}>{renderInline(tok.value, String(i))}</span>;
-          case "codeblock":
-            return (
-              <pre
-                key={i}
-                className="my-1 overflow-x-auto rounded-lg bg-black/[.06] p-2 font-mono text-[0.85em] dark:bg-white/[.08]"
-              >
-                {tok.value}
-              </pre>
-            );
-          case "mention":
-            return (
-              <span key={i} className="rounded bg-blue-500/10 px-1 font-medium text-blue-600 dark:text-blue-400">
-                @{userNames[tok.id] ?? tok.label ?? tok.id}
-              </span>
-            );
-          case "channel":
-            return (
-              <span key={i} className="font-medium text-blue-600 dark:text-blue-400">
-                #{tok.label ?? tok.id}
-              </span>
-            );
-          case "broadcast":
-            return (
-              <span
-                key={i}
-                className="rounded bg-amber-500/10 px-1 font-medium text-amber-600 dark:text-amber-400"
-              >
-                @{tok.value}
-              </span>
-            );
-          case "link":
-            return (
-              <a
-                key={i}
-                href={tok.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 underline dark:text-blue-400"
-              >
-                {tok.label}
-              </a>
-            );
-        }
-      })}
-    </div>
-  );
+/**
+ * Groups a message into quoted and plain runs of lines. Quotes are line-based in Slack's mrkdwn,
+ * so this only kicks in for messages that have a quoted line and no fenced code block (which can
+ * span lines and would be broken by splitting on newlines).
+ */
+function splitQuotes(text: string): { quote: boolean; text: string }[] | null {
+  if (text.includes("```")) return null;
+  const lines = text.split("\n");
+  if (!lines.some((line) => QUOTE_LINE_RE.test(line))) return null;
+
+  const blocks: { quote: boolean; lines: string[] }[] = [];
+  for (const line of lines) {
+    const quote = QUOTE_LINE_RE.test(line);
+    const value = quote ? line.replace(QUOTE_LINE_RE, "") : line;
+    const last = blocks[blocks.length - 1];
+    if (last && last.quote === quote) last.lines.push(value);
+    else blocks.push({ quote, lines: [value] });
+  }
+  return blocks.map((b) => ({ quote: b.quote, text: b.lines.join("\n") }));
+}
+
+/** Renders Slack's mrkdwn text: emphasis, code (blocks), quotes, mentions, channel refs, links, @here/@channel, emoji. */
+export function SlackText({ text, userNames }: { text: string; userNames: Record<string, string> }): ReactNode {
+  const blocks = splitQuotes(text);
+
+  if (blocks) {
+    return (
+      <div className="whitespace-pre-wrap break-words">
+        {blocks.map((block, i) =>
+          block.quote ? (
+            <blockquote
+              key={i}
+              className="my-0.5 border-l-2 border-zinc-300 pl-2 text-zinc-600 dark:border-zinc-600 dark:text-zinc-300"
+            >
+              {renderTokens(parseSlackText(block.text), userNames, `q${i}`)}
+            </blockquote>
+          ) : (
+            <span key={i}>
+              {renderTokens(parseSlackText(block.text), userNames, `t${i}`)}
+              {i < blocks.length - 1 && !blocks[i + 1].quote ? "\n" : null}
+            </span>
+          )
+        )}
+      </div>
+    );
+  }
+
+  return <div className="whitespace-pre-wrap break-words">{renderTokens(parseSlackText(text), userNames, "t")}</div>;
 }

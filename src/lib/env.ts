@@ -18,6 +18,15 @@ const envSchema = z.object({
 
   TOKEN_ENCRYPTION_KEY: z.string().min(1, "TOKEN_ENCRYPTION_KEY is required"),
 
+  // Optional speech-to-text for voice notes. Any server that speaks the OpenAI-style
+  // `POST /v1/audio/transcriptions` multipart API works: OpenAI Whisper, Groq, a local
+  // faster-whisper server, or your own Hindi/Hinglish ASR model behind that interface.
+  // Leave TRANSCRIPTION_API_URL unset to turn the feature off.
+  TRANSCRIPTION_API_URL: z.string().url().optional(),
+  TRANSCRIPTION_API_KEY: z.string().optional(),
+  TRANSCRIPTION_MODEL: z.string().default("whisper-1"),
+  TRANSCRIPTION_LANGUAGE: z.string().optional(), // ISO-639-1 hint such as "hi"; omit to auto-detect
+
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

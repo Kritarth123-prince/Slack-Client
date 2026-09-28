@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { searchEmoji, type EmojiEntry } from "@/lib/ui/emoji";
 import { EmojiGlyph } from "@/lib/ui/EmojiGlyph";
+import { useCustomEmoji } from "@/lib/ui/customEmoji";
 
 export function EmojiPicker({
   onPick,
@@ -12,7 +13,15 @@ export function EmojiPicker({
   align?: "left" | "right";
 }) {
   const [query, setQuery] = useState("");
-  const results = searchEmoji(query);
+  const custom = useCustomEmoji();
+  const q = query.trim().toLowerCase();
+  // Custom workspace emoji sit in front of the standard set so they're easy to spot; when searching,
+  // they match on name like everything else.
+  const customResults: EmojiEntry[] = Object.entries(custom)
+    .filter(([name]) => !q || name.includes(q))
+    .slice(0, q ? 24 : 48)
+    .map(([name, url]) => ({ name, glyph: "", keywords: [], url }));
+  const results = [...customResults, ...searchEmoji(query)];
 
   return (
     <div
@@ -36,7 +45,12 @@ export function EmojiPicker({
             onClick={() => onPick(entry)}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-lg hover:bg-black/[.04] dark:hover:bg-white/[.05]"
           >
-            <EmojiGlyph glyph={entry.glyph} />
+            {entry.url ? (
+              // eslint-disable-next-line @next/next/no-img-element -- Slack-hosted custom emoji image
+              <img src={entry.url} alt={`:${entry.name}:`} className="h-5 w-5 object-contain" draggable={false} />
+            ) : (
+              <EmojiGlyph glyph={entry.glyph} />
+            )}
           </button>
         ))}
         {results.length === 0 && (

@@ -1,34 +1,43 @@
 import { WebClient } from "@slack/web-api";
-import { prisma } from "@/lib/db/prisma";
+import type { SlackInstallation } from "@prisma/client";
 import { decryptToken } from "@/lib/slack/tokenCipher";
+import { getActiveInstallation, getInstallationForWorkspace } from "@/lib/slack/installation";
 import { logger } from "@/lib/logger";
 
-/**
- * Builds a Slack WebClient authenticated as the given user's installation.
- * The decrypted token lives only in process memory for the duration of
- * the request — it is never returned to the caller or logged.
- */
-export async function getSlackClientForUser(userId: string): Promise<WebClient> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
-
-  if (!installation) {
-    throw new SlackNotConnectedError(userId);
-  }
-
+function clientFor(installation: SlackInstallation): WebClient {
   const token = decryptToken({
     ciphertext: installation.encryptedAccessToken,
     iv: installation.tokenIv,
     authTag: installation.tokenAuthTag,
   });
-
-  const client = new WebClient(token, {
+  return new WebClient(token, {
     retryConfig: { retries: 4, factor: 2, minTimeout: 500, maxTimeout: 8000 },
   });
+}
 
-  return client;
+/**
+ * Builds a Slack WebClient for a specific installation. The decrypted token lives only in process
+ * memory for the duration of the request — it is never returned to the caller or logged.
+ */
+export function getSlackClientForInstallation(installation: SlackInstallation): WebClient {
+  return clientFor(installation);
+}
+
+/** A client for the user's currently active workspace (see getActiveInstallation). */
+export async function getSlackClientForUser(userId: string): Promise<WebClient> {
+  const installation = await getActiveInstallation(userId);
+  if (!installation) throw new SlackNotConnectedError(userId);
+  return clientFor(installation);
+}
+
+/**
+ * A client for a specific workspace — used whenever the action is about a conversation, since the
+ * conversation's workspace may not be the one the user currently has switched to.
+ */
+export async function getSlackClientForWorkspace(userId: string, workspaceId: string): Promise<WebClient> {
+  const installation = await getInstallationForWorkspace(userId, workspaceId);
+  if (!installation) throw new SlackNotConnectedError(userId);
+  return clientFor(installation);
 }
 
 export class SlackNotConnectedError extends Error {

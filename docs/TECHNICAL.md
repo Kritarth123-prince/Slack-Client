@@ -33,7 +33,8 @@ There are two independent update paths, which is why the app feels close to real
 | Directory | Holds |
 | --- | --- |
 | `src/lib/slack/` | Everything that talks to Slack: `client.ts` (per-user `WebClient` from the encrypted token), `sync.ts` (history, thread backfill, send/edit/delete, uploads, reactions, event handling), `scopes.ts`, `formatSlackText.tsx`, `presence.ts`, small helpers (`links.ts`, `messageFiles.ts`, `reactionGroups.ts`). |
-| `src/server/services/` | Feature logic that composes DB + Slack calls and is shared by pages and route handlers: `conversations.ts` (list + unread counts), `search.ts`, `workspace.ts` (`team.info` branding), `preferences.ts`, `linkPreview.ts`, `presenceSignals.ts` (typing + read receipts). New logic goes here; `lib/slack/sync.ts` stays as the Slack sync core. |
+| `src/server/services/` | Feature logic that composes DB + Slack calls and is shared by pages and route handlers: `conversations.ts` (list, unread counts, pinned/muted ordering), `search.ts`, `workspace.ts` (`team.info` branding), `preferences.ts`, `linkPreview.ts`, `presenceSignals.ts` (typing + read receipts), `scheduled.ts` (`chat.scheduleMessage`), `reminders.ts` (`reminders.add`), `customEmoji.ts` (`emoji.list`), `transcription.ts` (speech-to-text), `conversationSettings.ts` (pin/mute). New logic goes here; `lib/slack/sync.ts` stays as the Slack sync core. |
+| `src/lib/slack/installation.ts` | `getActiveInstallation` / `getInstallationForWorkspace`: the single place that decides which of a user's connected workspaces (and therefore which token) an action runs under. Everything that needs a Slack client goes through it — that's what makes workspace switching a one-field change on `User.activeWorkspaceId`. |
 | `src/app/api/` | Thin route handlers: auth check → validate input → call a service/sync function → JSON. |
 | `src/app/app/` | The signed-in UI. `layout.tsx` renders the desktop sidebar around every page; `page.tsx` is the phone-sized conversation list; `[id]/` is a conversation; `search/`, `settings/`, `saved/` are pages. |
 | `src/components/` | Client components grouped by area (see §5). |
@@ -46,7 +47,10 @@ Defined in [`../prisma/schema.prisma`](../prisma/schema.prisma).
 
 | Model | Purpose |
 | --- | --- |
-| `User` | One row per person who has connected a Slack account here. |
+| `User` | One row per person who has connected a Slack account here; `activeWorkspaceId` is the workspace currently shown. |
+| `ConversationSetting` | Per-user pin/mute flags for a conversation — pinned sorts to the top, muted drops out of push notifications and badges. |
+| `CustomEmoji` | The workspace's custom emoji (name → image URL) from `emoji.list`, refreshed at most daily; aliases resolved at sync time. |
+| `VoiceTranscript` | Speech-to-text output for a voice note, keyed by Slack file id so it's produced once. |
 | `Session` | Server-side session backing the HttpOnly cookie — revocable independently of cookie lifetime. |
 | `SlackInstallation` | The encrypted OAuth token for one `(workspace, Slack user)` pair, plus granted scopes. |
 | `Workspace` | Cached team metadata; `name`/`domain`/`iconUrl` refreshed from `team.info` at most daily. |
@@ -73,6 +77,35 @@ Defined in [`../prisma/schema.prisma`](../prisma/schema.prisma).
 - **File proxy** (`/api/files/proxy`) only fetches from Slack's file hosts, forwards `Range` requests and relays `206`/`Content-Range` — mobile Safari refuses to play media otherwise.
 - **Link previews** are fetched server-side with SSRF guards: `http(s)` only, private/loopback hosts refused (including after redirects, via `response.url`), 6s timeout, 512KB read cap, HTML only.
 - **Uploads are capped** at 25MB and 10 files per message, app-side, to bound route-handler memory.
+
+## 4a. API routes
+
+| Route | Does |
+| --- | --- |
+| `GET /api/conversations` | List (syncs every conversation + notification check) — includes `unreadCount`, `pinned`, `muted` |
+| `GET/POST /api/conversations/:id/messages` | Messages (syncs first; includes `typing` and `readers`) / send a message or reply |
+| `PATCH/DELETE /api/conversations/:id/messages/:messageId` | Edit / delete your own message |
+| `POST …/messages/:messageId/reactions`, `/pin`, `/save`, `/forward` | Toggle reaction, pin, save, forward |
+| `POST /api/conversations/:id/files` | Upload one or more files / a voice note as a single message (multipart) |
+| `GET/PUT /api/conversations/:id/draft` | Load / save unsent text (per thread via `threadTs`) |
+| `POST /api/conversations/:id/typing` | Typing heartbeat (`stop: true` clears it) |
+| `POST /api/conversations/:id/read` | Move the read cursor ("mark unread from here") |
+| `GET/PATCH /api/conversations/:id/settings` | Pin / mute |
+| `GET/POST/DELETE /api/conversations/:id/scheduled` | List / schedule / cancel "send later" messages |
+| `GET /api/conversations/:id/members` | Members, for @mention autocomplete |
+| `POST /api/reminders` | "Remind me about this message" |
+| `GET /api/search?q=` | Slack `search.messages`, mapped onto local conversations |
+| `GET /api/emoji` | Custom emoji map (syncs at most daily) |
+| `GET /api/link-preview?url=` | Cached Open Graph metadata |
+| `GET /api/files/proxy?url=` | Authenticated, range-aware proxy for Slack file bytes |
+| `GET /api/files/transcript?fileId=&url=` | Voice-note transcript (`disabled` when no endpoint is configured) |
+| `GET/PATCH /api/preferences` | Settings, including display name |
+| `GET/POST /api/workspaces` | Connected workspaces / switch the active one |
+| `GET/PATCH /api/status`, `POST /api/status/heartbeat` | Presence, status, DND; activity heartbeat |
+| `GET /api/saved` | Saved messages |
+| `GET /api/oauth/slack`, `/callback`, `POST /api/auth/logout` | OAuth (also "add another workspace" while signed in) / logout |
+| `POST /api/slack/events` | Slack Events API webhook |
+| `POST /api/push/subscribe`, `GET /api/push/vapid-public-key` | Web Push |
 
 ## 5. Frontend architecture
 
@@ -102,7 +135,19 @@ hooks/useClickOutside              closes popovers on outside pointer-down
 
 **Theme & density.** The root layout reads `UserPreference` and sets `data-theme-pref`/`data-density` on `<html>`; an inline script resolves "system" via `prefers-color-scheme` before first paint and tracks OS changes. Tailwind's `dark:` variant is remapped to `[data-theme="dark"]` via `@custom-variant`, so every existing `dark:` utility follows the setting. Density is a CSS rule on `.message-feed`.
 
-**Notifications.** `notificationAllowed()` in `lib/push.ts` applies DND, quiet hours (evaluated in the user's saved IANA timezone), and the per-type toggles; mentions (`<@you>`, `@here/@channel`) override the per-conversation-type toggle. Both notify paths — the webhook and the polling fallback — go through it.
+**Notifications.** `notificationAllowed()` in `lib/push.ts` applies muted conversations, DND, quiet hours (evaluated in the user's saved IANA timezone), and the per-type toggles; mentions (`<@you>`, `@here/@channel`) override the per-conversation-type toggle. Both notify paths — the webhook and the polling fallback — go through it.
+
+**Composer.** An auto-growing `<textarea>` (Enter sends, Shift+Enter newline, IME-safe). Formatting is plain Slack mrkdwn wrapped around the selection (`*`, `_`, `~`, `` ` ``, `> `), via toolbar or shortcuts. Files arrive from the picker, `paste` (clipboard files) or drag-and-drop — the conversation view forwards drops through a `ComposerHandle` ref so the composer keeps owning the pending list. "Send later" posts to `/scheduled`, which validates `post_at` (≥1 min ahead, ≤120 days) and calls `chat.scheduleMessage`; `ScheduledList` shows what's queued from `chat.scheduledMessages.list`.
+
+**Custom emoji.** `CustomEmojiProvider` fetches `/api/emoji` once per session (module-cached) and provides a name → URL map through context; `EmojiText` (used by `SlackText`) replaces `:name:` tokens with the custom image or the standard glyph, `ReactionEmoji` does the same for reaction pills, and the picker lists custom emoji first. The composer inserts `:name:` for custom picks because that's what Slack renders.
+
+**Quick switcher / workspaces.** `QuickSwitcher` is mounted in the app layout with the same list the sidebar gets; Ctrl/Cmd+K opens it, matching by prefix/substring/subsequence. `WorkspaceSwitcher` lists `SlackInstallation` rows for the user and `POST /api/workspaces` sets `User.activeWorkspaceId`; the OAuth callback attaches a new installation to the signed-in user (rather than creating a second account) and makes it active.
+
+**"New messages" divider.** The page captures `ReadState.lastReadTs` *before* advancing it, passes it as `initialLastReadTs`, and the view draws the line before the first message from someone else past that cursor — frozen for the life of the view so it doesn't move as the poll re-marks the conversation read. "Mark unread from here" sets the cursor to the previous message's ts and navigates away, since staying would re-mark it within 4s.
+
+**Voice transcription.** `getVoiceTranscript()` downloads the note with the user's token, posts it as multipart to `TRANSCRIPTION_API_URL` (OpenAI `/v1/audio/transcriptions` shape: `file`, `model`, optional `language`), and caches the text in `VoiceTranscript`. The client component asks once per file and remembers a `disabled` answer for the session.
+
+**PWA.** `public/sw.js` precaches the offline page, serves `/_next/static` cache-first, and uses network-first-with-cache-fallback for navigations and the read-only list/messages/emoji endpoints; `ServiceWorkerRegistration` registers it on every signed-in page (previously only when push was enabled).
 
 **Sidebar.** `app/app/layout.tsx` does a plain DB read for the list (no Slack sync) so opening a conversation doesn't pay for a workspace sweep; the sidebar's own 15s poll and the `/app` page trigger the sync. Below `md` the sidebar is hidden and `/app` renders the list full-screen.
 
@@ -122,7 +167,8 @@ Both therefore describe activity inside this client only. Someone reading in Sla
 ## 7. Known limitations
 
 - **History depth.** Sync pulls the newest 50 messages on first open and only newer ones afterwards; there's no backwards pagination. Search results for older, uncached messages open the conversation without scrolling to the message.
-- **Custom workspace emoji** aren't rendered (no `emoji:read` scope; falls back to `:name:`).
 - **Flag emoji depend on a CDN** (Twemoji via jsDelivr); offline they show alt text.
 - **Link previews** rely on the target site serving Open Graph/HTML to a server-side fetch; bot-blocking sites get no card.
-- **Multi-workspace**: one installation per user is used at a time (the most recent), though the schema allows more.
+- **Transcription is bring-your-own-endpoint**: no model ships with the app.
+- **Offline is read-only**: cached pages and last-fetched messages only; writes need a connection and aren't queued.
+- **Reminders and custom emoji need new scopes** (`reminders:write`, `emoji:read`) — existing installs must reconnect.

@@ -6,6 +6,7 @@ import { extractSlackFiles } from "@/lib/slack/messageFiles";
 import { groupReactions } from "@/lib/slack/reactionGroups";
 import { listTyping, listReaders, clearTyping } from "@/server/services/presenceSignals";
 import { logger } from "@/lib/logger";
+import { getActiveInstallation } from "@/lib/slack/installation";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await requireUserId();
@@ -24,10 +25,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     logger.error("Failed to sync messages", { message: (err as Error).message });
   }
 
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   const self = installation
     ? await prisma.slackUser.findUnique({
         where: {

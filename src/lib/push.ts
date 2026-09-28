@@ -44,6 +44,7 @@ function inQuietHours(start: string | null, end: string | null, timezone: string
 }
 
 export interface NotificationContext {
+  conversationId: string;
   conversationType: "PUBLIC_CHANNEL" | "PRIVATE_CHANNEL" | "DM" | "GROUP_DM";
   text: string;
   selfSlackUserId: string;
@@ -56,7 +57,14 @@ export interface NotificationContext {
  * so an @-mention in a muted channel still gets through when mentions are on.
  */
 export async function notificationAllowed(userId: string, ctx: NotificationContext): Promise<boolean> {
-  const pref = await prisma.userPreference.findUnique({ where: { userId } });
+  const [pref, setting] = await Promise.all([
+    prisma.userPreference.findUnique({ where: { userId } }),
+    prisma.conversationSetting.findUnique({
+      where: { userId_conversationId: { userId, conversationId: ctx.conversationId } },
+      select: { muted: true },
+    }),
+  ]);
+  if (setting?.muted) return false;
   if (!pref) return true;
   if (pref.doNotDisturb) return false;
   if (inQuietHours(pref.quietHoursStart, pref.quietHoursEnd, pref.timezone)) return false;

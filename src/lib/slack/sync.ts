@@ -1,10 +1,11 @@
 import type { WebClient } from "@slack/web-api";
 import { ConversationType, type Conversation, type Message, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { getSlackClientForUser } from "@/lib/slack/client";
+import { getSlackClientForWorkspace, getSlackClientForInstallation } from "@/lib/slack/client";
 import type { SlackEventEnvelope } from "@/lib/slack/events";
 import { sendPushToUser, notificationAllowed } from "@/lib/push";
 import { logger } from "@/lib/logger";
+import { getActiveInstallation, getInstallationForWorkspace } from "@/lib/slack/installation";
 
 type SlackEvent = NonNullable<SlackEventEnvelope["event"]>;
 
@@ -165,7 +166,7 @@ export async function listConversationMembers(
   userId: string,
   conversation: Conversation
 ): Promise<{ id: string; displayName: string }[]> {
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
   const memberIds = await fetchConversationMemberIds(client, conversation.slackConversationId);
   const users = await Promise.all(memberIds.map((id) => upsertWorkspaceUser(conversation.workspaceId, client, id)));
   return users.map((u) => ({ id: u.slackUserId, displayName: u.displayName }));
@@ -173,13 +174,10 @@ export async function listConversationMembers(
 
 /** Fetches the conversations the authorizing user is a member of and upserts them. */
 export async function syncConversationsForUser(userId: string): Promise<void> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return;
 
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, installation.workspaceId);
   await syncWorkspaceUsers(installation.workspaceId, client).catch((err) =>
     logger.error("Failed to bulk-sync workspace users", { message: (err as Error).message })
   );
@@ -241,7 +239,7 @@ export async function syncConversationsForUser(userId: string): Promise<void> {
  * or the platform blocking the callback before it reaches our handler).
  */
 export async function syncMessages(userId: string, conversation: Conversation, limit = 50): Promise<Message[]> {
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
 
   const latestCached = await prisma.message.findFirst({
     where: { conversationId: conversation.id },
@@ -394,10 +392,7 @@ const MAX_CONVERSATIONS_PER_SYNC = 60;
  * notifications work even when the webhook isn't reaching this deployment.
  */
 export async function syncAllConversationsAndNotify(userId: string): Promise<void> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getActiveInstallation(userId);
   if (!installation) return;
 
   const [conversations, self] = await Promise.all([
@@ -437,6 +432,7 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
       if (!msg.authorId || msg.authorId === self?.id) continue;
 
       const allowed = await notificationAllowed(userId, {
+        conversationId: conversation.id,
         conversationType: conversation.type,
         text: msg.text,
         selfSlackUserId: installation.slackUserId,
@@ -461,13 +457,10 @@ export async function postMessage(
   text: string,
   threadTs?: string
 ): Promise<void> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getInstallationForWorkspace(userId, conversation.workspaceId);
   if (!installation) throw new Error("No active Slack installation for user");
 
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
   const res = await client.chat.postMessage({
     channel: conversation.slackConversationId,
     text,
@@ -504,7 +497,7 @@ export async function editMessage(
   message: Message,
   text: string
 ): Promise<void> {
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
   await client.chat.update({ channel: conversation.slackConversationId, ts: message.slackTs, text });
   await resolveMentionedUsers(conversation.workspaceId, client, text);
 
@@ -516,7 +509,7 @@ export async function editMessage(
 
 /** Deletes a message the authorizing user sent (soft-deletes locally, mirroring the webhook path). */
 export async function deleteMessage(userId: string, conversation: Conversation, message: Message): Promise<void> {
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
   await client.chat.delete({ channel: conversation.slackConversationId, ts: message.slackTs });
 
   await prisma.message.update({
@@ -537,7 +530,7 @@ export async function setMessagePinned(
   pinned: boolean
 ): Promise<void> {
   try {
-    const client = await getSlackClientForUser(userId);
+    const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
     if (pinned) {
       await client.pins.add({ channel: conversation.slackConversationId, timestamp: message.slackTs });
     } else {
@@ -562,13 +555,10 @@ export async function forwardMessage(
   targetConversation: Conversation,
   originalMessage: Message
 ): Promise<void> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getInstallationForWorkspace(userId, targetConversation.workspaceId);
   if (!installation) throw new Error("No active Slack installation for user");
 
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, targetConversation.workspaceId);
   const res = await client.chat.postMessage({
     channel: targetConversation.slackConversationId,
     text: originalMessage.text,
@@ -607,7 +597,7 @@ export async function uploadFiles(
   conversation: Conversation,
   upload: { files: { data: Buffer; filename: string }[]; threadTs?: string; initialComment?: string }
 ): Promise<void> {
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
   // Several files go up as one `file_uploads` batch so Slack posts them as a single message
   // (with the caption on it) rather than one message per file.
   const shared = {
@@ -633,13 +623,10 @@ export async function addReaction(
   message: Message,
   emoji: string
 ): Promise<void> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getInstallationForWorkspace(userId, conversation.workspaceId);
   if (!installation) throw new Error("No active Slack installation for user");
 
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
   await client.reactions.add({ channel: conversation.slackConversationId, timestamp: message.slackTs, name: emoji });
 
   const self = await upsertWorkspaceUser(conversation.workspaceId, client, installation.slackUserId);
@@ -656,13 +643,10 @@ export async function removeReaction(
   message: Message,
   emoji: string
 ): Promise<void> {
-  const installation = await prisma.slackInstallation.findFirst({
-    where: { userId, revokedAt: null },
-    orderBy: { installedAt: "desc" },
-  });
+  const installation = await getInstallationForWorkspace(userId, conversation.workspaceId);
   if (!installation) throw new Error("No active Slack installation for user");
 
-  const client = await getSlackClientForUser(userId);
+  const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
   await client.reactions
     .remove({ channel: conversation.slackConversationId, timestamp: message.slackTs, name: emoji })
     .catch(() => {});
@@ -686,7 +670,7 @@ export async function processSlackEvent(envelope: SlackEventEnvelope): Promise<v
   });
   if (!installation) return;
 
-  const client = await getSlackClientForUser(installation.userId);
+  const client = await getSlackClientForInstallation(installation);
 
   if (event.type === "message") {
     await handleMessageEvent(workspace.id, client, event, {
@@ -771,6 +755,7 @@ async function handleMessageEvent(
 
   if (isNewMessage && authorSlackId && authorSlackId !== notify.selfSlackUserId) {
     const allowed = await notificationAllowed(notify.userId, {
+      conversationId: conversation.id,
       conversationType: conversation.type,
       text,
       selfSlackUserId: notify.selfSlackUserId,

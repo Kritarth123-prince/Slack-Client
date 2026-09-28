@@ -49,6 +49,12 @@ export const SLACK_USER_SCOPES = [
   // Upload files and voice notes as attachments.
   "files:write",
 
+  // "Remind me about this" from a message's menu.
+  "reminders:write",
+
+  // Render the workspace's custom emoji (emoji.list).
+  "emoji:read",
+
   // Search messages the user has access to.
   "search:read",
 
