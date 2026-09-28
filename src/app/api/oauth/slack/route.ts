@@ -21,7 +21,11 @@ export async function GET() {
 
   const authorizeUrl = new URL("https://slack.com/oauth/v2/authorize");
   authorizeUrl.searchParams.set("client_id", env.SLACK_CLIENT_ID);
-  authorizeUrl.searchParams.set("user_scope", SLACK_SCOPES_STRING);
+  const extra = (env.SLACK_EXTRA_USER_SCOPES ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  authorizeUrl.searchParams.set("user_scope", [SLACK_SCOPES_STRING, ...extra].join(","));
   authorizeUrl.searchParams.set("redirect_uri", `${env.APP_BASE_URL}/api/oauth/slack/callback`);
   authorizeUrl.searchParams.set("state", state);
 

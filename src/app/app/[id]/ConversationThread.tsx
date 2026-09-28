@@ -10,6 +10,7 @@ import { ScheduledList } from "@/components/composer/ScheduledList";
 import { ThreadPanel } from "@/components/thread/ThreadPanel";
 import { TypingLine } from "@/components/conversation/TypingLine";
 import { CustomEmojiProvider } from "@/lib/ui/customEmoji";
+import { messageDate, dayKey, formatDayLabel } from "@/lib/slack/messageTime";
 import type { ForwardTarget, Member, MessageView } from "@/types/chat";
 import type { TypingView, ReaderView } from "@/server/services/presenceSignals";
 import type { ConversationSettingView } from "@/server/services/conversationSettings";
@@ -424,6 +425,17 @@ export function ConversationThread({
       <div ref={scrollRef} onScroll={handleScroll} className="message-feed flex-1 overflow-y-auto overflow-x-hidden px-1 py-2">
         {feedMessages.map((m, i) => (
           <div key={m.id} className="contents">
+            {(i === 0 || dayKey(messageDate(feedMessages[i - 1].slackTs)) !== dayKey(messageDate(m.slackTs))) && (
+              <div
+                className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500"
+                role="separator"
+                suppressHydrationWarning
+              >
+                <span className="h-px flex-1 bg-black/[.06] dark:bg-white/[.08]" />
+                {formatDayLabel(messageDate(m.slackTs))}
+                <span className="h-px flex-1 bg-black/[.06] dark:bg-white/[.08]" />
+              </div>
+            )}
             {i === firstNewIndex && (
               <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-red-500" role="separator">
                 <span className="h-px flex-1 bg-red-500/40" />

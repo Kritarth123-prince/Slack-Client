@@ -50,6 +50,11 @@ Under **OAuth & Permissions**:
 | `search:read` | Power the in-app search screen |
 | `team:read` | Show workspace name/icon in the UI |
 
+Optional — only if you want reading a conversation *here* to clear its unread badge in Slack's
+own apps too (`conversations.mark`): add `channels:write`, `groups:write`, `im:write`, `mpim:write`
+and set `SLACK_EXTRA_USER_SCOPES=channels:write,groups:write,im:write,mpim:write` in `.env`.
+The reverse direction (reading in Slack clears it here) needs nothing extra.
+
 If you don't intend to use a feature (e.g. search), you can omit its scope —
 the app degrades that one feature and tells you why in the UI, rather than
 failing everything.

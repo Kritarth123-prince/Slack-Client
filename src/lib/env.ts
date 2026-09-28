@@ -5,6 +5,10 @@ const envSchema = z.object({
   SLACK_CLIENT_SECRET: z.string().min(1, "SLACK_CLIENT_SECRET is required"),
   SLACK_SIGNING_SECRET: z.string().min(1, "SLACK_SIGNING_SECRET is required"),
   SLACK_APP_TOKEN: z.string().optional(),
+  // Extra user scopes to request but not require (comma-separated). Used for conversations.mark
+  // — pushing "read here" to Slack — which needs channels:write,groups:write,im:write,mpim:write;
+  // those aren't mandatory because not every Slack App configuration offers them.
+  SLACK_EXTRA_USER_SCOPES: z.string().optional(),
 
   APP_BASE_URL: z.string().url(),
 

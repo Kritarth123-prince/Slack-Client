@@ -2,7 +2,7 @@ import { cache } from "react";
 import { prisma } from "@/lib/db/prisma";
 import { conversationLabel, conversationAvatarUrl } from "@/lib/slack/conversationLabel";
 import { getActiveInstallation } from "@/lib/slack/installation";
-import { syncConversationsForUser } from "@/lib/slack/sync";
+import { syncConversationsForUser, syncReadCursorsFromSlack } from "@/lib/slack/sync";
 import { syncWorkspaceBranding } from "@/server/services/workspace";
 import { logger } from "@/lib/logger";
 
@@ -98,5 +98,11 @@ export const loadConversationList = cache(async (userId: string): Promise<Conver
     ),
     syncWorkspaceBranding(userId),
   ]);
+  const installation = await getActiveInstallation(userId);
+  if (installation) {
+    await syncReadCursorsFromSlack(userId, installation).catch((err) =>
+      logger.warn("Failed to sync read cursors from Slack", { message: (err as Error).message })
+    );
+  }
   return getConversationListItems(userId);
 });

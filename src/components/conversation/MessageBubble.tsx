@@ -11,6 +11,7 @@ import { EmojiPicker } from "@/components/composer/EmojiPicker";
 import { LinkPreviewCard } from "@/components/conversation/LinkPreviewCard";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { firstLinkIn } from "@/lib/slack/links";
+import { messageDate, formatClock, formatFullDateTime } from "@/lib/slack/messageTime";
 import type { EmojiEntry } from "@/lib/ui/emoji";
 import type { ForwardTarget, MessageView } from "@/types/chat";
 import type { SlackFileView } from "@/lib/slack/messageFiles";
@@ -186,6 +187,7 @@ export function MessageBubble({
     ];
   }
   const previewUrl = m.isDeleted ? null : firstLinkIn(m.text);
+  const sentAt = messageDate(m.slackTs);
 
   function pickReaction(entry: EmojiEntry) {
     onToggleReaction(m.id, entry.name);
@@ -218,19 +220,27 @@ export function MessageBubble({
     >
       <Avatar seed={m.authorName} name={m.authorName} avatarUrl={m.authorAvatarUrl} />
       <div className={`flex min-w-0 max-w-[85%] flex-col gap-1 sm:max-w-[75%] ${m.isSelf ? "items-end" : "items-start"}`}>
-        {(!m.isSelf || m.isDeleted || m.pinned) && (
-          <div className="flex items-center gap-1.5 px-1">
+        <div className="flex items-center gap-1.5 px-1">
             {!m.isSelf && (
               <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{m.authorName}</span>
             )}
+            {/* Rendered in the viewer's timezone, so the server-rendered text may differ from the
+                client's; the first poll re-renders it within seconds, so a patch-up isn't needed. */}
+            <time
+              dateTime={sentAt.toISOString()}
+              title={formatFullDateTime(sentAt)}
+              suppressHydrationWarning
+              className="text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500"
+            >
+              {formatClock(sentAt)}
+            </time>
             {m.pinned && <span className="text-xs" title="Pinned">📌</span>}
             {m.isDeleted && (
               <span className="rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-500">
                 Deleted
               </span>
             )}
-          </div>
-        )}
+        </div>
 
         {m.forwardedFrom && (
           <div className="max-w-full rounded-lg border-l-2 border-zinc-300 bg-black/[.02] px-2 py-1 text-xs text-zinc-500 dark:border-zinc-600 dark:bg-white/[.03] dark:text-zinc-400">

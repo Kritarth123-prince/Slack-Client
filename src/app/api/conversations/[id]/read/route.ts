@@ -16,6 +16,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const lastReadTs = typeof body?.lastReadTs === "string" ? body.lastReadTs : null;
   if (lastReadTs === null) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
 
-  await markConversationRead(userId, id, lastReadTs);
+  await markConversationRead(userId, id, lastReadTs, { rewind: true });
   return NextResponse.json({ ok: true });
 }

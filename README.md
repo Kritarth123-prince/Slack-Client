@@ -14,6 +14,8 @@ It exists because Slack's official web/desktop client doesn't run well (or at al
 - Slack-formatted text rendering (mentions, channel refs, links, quotes, bold/italic/strike/code, `:emoji:` shortcodes)
 - Link previews — the first URL in a message unfurls into a title/description/image card
 - "New messages" divider at your last-read point when you open a chat, and "Mark unread from here" in a message's menu
+- Read state stays in step with Slack: reading a conversation in Slack's own app clears it here (Slack's `last_read` is polled for unread conversations), and reading here can clear it in Slack too — see `SLACK_EXTRA_USER_SCOPES`
+- Every message shows its time (24-hour, your local zone; hover for the full date) and the feed is split by day
 - Numeric unread counts per conversation, not just a dot; pin favourites to the top and mute chats you don't want notifications from
 - Ctrl+K quick switcher — jump to any conversation by typing part of its name
 - "Remind me about this" on any message (in 20 min / 1 h / 3 h / tomorrow / next week / custom) via Slack's own reminders
@@ -106,6 +108,7 @@ All variables are validated on startup (`src/lib/env.ts`) — the app refuses to
 | --- | --- |
 | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` | From your Slack App's **Basic Information** page |
 | `SLACK_APP_TOKEN` | Optional — only needed if you switch to Socket Mode instead of HTTP Events |
+| `SLACK_EXTRA_USER_SCOPES` | Optional — extra scopes to request but not require; `channels:write,groups:write,im:write,mpim:write` lets reads here mark conversations read in Slack |
 | `APP_BASE_URL` | Public URL of this deployment (OAuth redirect + push links), no trailing slash |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `SESSION_SECRET` | 32+ byte random string — `openssl rand -base64 32` |

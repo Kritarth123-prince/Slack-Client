@@ -152,13 +152,79 @@ async function upsertConversationMember(conversationId: string, slackUserRowId: 
   });
 }
 
-/** Records that the user has seen messages up to this point, clearing the unread indicator. */
-export async function markConversationRead(userId: string, conversationId: string, lastReadTs: string): Promise<void> {
+/**
+ * Records that the user has seen messages up to this point, clearing the unread indicator. Only
+ * ever moves the cursor forward (the open conversation calls this on every poll) unless `rewind`
+ * is set, which "mark unread from here" uses. When the cursor actually moves it's also pushed to
+ * Slack via conversations.mark, so reading here clears the badge in Slack's own apps too — that
+ * call is best-effort, since it needs write scopes the app doesn't require (see
+ * SLACK_EXTRA_USER_SCOPES).
+ */
+export async function markConversationRead(
+  userId: string,
+  conversationId: string,
+  lastReadTs: string,
+  options: { rewind?: boolean; pushToSlack?: boolean } = {}
+): Promise<void> {
+  const existing = await prisma.readState.findUnique({ where: { userId_conversationId: { userId, conversationId } } });
+  if (existing && !options.rewind && existing.lastReadTs >= lastReadTs) return;
+
   await prisma.readState.upsert({
     where: { userId_conversationId: { userId, conversationId } },
     update: { lastReadTs },
     create: { userId, conversationId, lastReadTs },
   });
+
+  if (options.pushToSlack === false) return;
+  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+  if (!conversation) return;
+  try {
+    const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
+    await client.conversations.mark({ channel: conversation.slackConversationId, ts: lastReadTs });
+  } catch (err) {
+    const code = (err as { data?: { error?: string } }).data?.error;
+    if (code !== "missing_scope" && code !== "not_allowed_token_type") {
+      logger.warn("Failed to push read cursor to Slack", { code, message: (err as Error).message });
+    }
+  }
+}
+
+const MAX_READ_CURSOR_CHECKS = 15;
+
+/**
+ * Pulls Slack's own read cursor for conversations this app still thinks are unread, so reading a
+ * message in Slack's official app clears it here too. Slack has no read-cursor event on the Events
+ * API, so this is polled — but only for locally-unread conversations, which keeps it to a handful
+ * of conversations.info calls per list refresh rather than one per conversation.
+ */
+export async function syncReadCursorsFromSlack(userId: string, installation: { workspaceId: string }): Promise<void> {
+  const [conversations, readStates] = await Promise.all([
+    prisma.conversation.findMany({
+      where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false, lastMessageTs: { not: null } },
+      orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }],
+      select: { id: true, slackConversationId: true, lastMessageTs: true },
+    }),
+    prisma.readState.findMany({ where: { userId }, select: { conversationId: true, lastReadTs: true } }),
+  ]);
+  const readMap = new Map(readStates.map((r) => [r.conversationId, r.lastReadTs]));
+  const unread = conversations
+    .filter((c) => {
+      const lastRead = readMap.get(c.id);
+      return !lastRead || lastRead < c.lastMessageTs!;
+    })
+    .slice(0, MAX_READ_CURSOR_CHECKS);
+  if (unread.length === 0) return;
+
+  const client = await getSlackClientForWorkspace(userId, installation.workspaceId);
+  for (const conversation of unread) {
+    const info = await client.conversations.info({ channel: conversation.slackConversationId }).catch(() => null);
+    const slackLastRead = info?.channel?.last_read;
+    if (!slackLastRead) continue;
+    const local = readMap.get(conversation.id);
+    if (!local || slackLastRead > local) {
+      await markConversationRead(userId, conversation.id, slackLastRead, { pushToSlack: false });
+    }
+  }
 }
 
 /** Returns this conversation's members, resolved to display names (used by the @-mention picker). */
@@ -448,6 +514,10 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
       }).catch((err) => logger.error("Failed to send push notification", { message: (err as Error).message }));
     }
   }
+
+  await syncReadCursorsFromSlack(userId, installation).catch((err) =>
+    logger.warn("Failed to sync read cursors from Slack", { message: (err as Error).message })
+  );
 }
 
 /** Sends a message as the authorizing user, then upserts it locally so the UI reflects it instantly. */
