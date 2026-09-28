@@ -50,12 +50,13 @@ export async function getConversationListItems(userId: string): Promise<Conversa
     return Boolean(c.lastMessageTs) && (!lastRead || lastRead < c.lastMessageTs!);
   });
 
-  const counts =
+  // Only root messages count — thread replies don't make a channel unread in Slack either. The
+  // root/reply distinction is a column comparison Prisma can't express, so the (small) set of
+  // messages past each cursor is fetched and counted here.
+  const newer =
     unreadConversations.length === 0
       ? []
-      : await prisma.message.groupBy({
-          by: ["conversationId"],
-          _count: { _all: true },
+      : await prisma.message.findMany({
           where: {
             deletedAt: null,
             ...(self ? { NOT: { authorId: self.id } } : {}),
@@ -64,8 +65,13 @@ export async function getConversationListItems(userId: string): Promise<Conversa
               return { conversationId: c.id, ...(lastRead ? { slackTs: { gt: lastRead } } : {}) };
             }),
           },
+          select: { conversationId: true, slackTs: true, threadTs: true },
         });
-  const countMap = new Map(counts.map((row) => [row.conversationId, row._count._all]));
+  const countMap = new Map<string, number>();
+  for (const m of newer) {
+    if (m.threadTs && m.threadTs !== m.slackTs) continue;
+    countMap.set(m.conversationId, (countMap.get(m.conversationId) ?? 0) + 1);
+  }
 
   const items = conversations.map((c) => {
     const lastRead = readMap.get(c.id);

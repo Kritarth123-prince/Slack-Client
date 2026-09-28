@@ -189,13 +189,14 @@ export async function markConversationRead(
   }
 }
 
-const MAX_READ_CURSOR_CHECKS = 15;
+const MAX_READ_CURSOR_CHECKS = 20;
 
 /**
  * Pulls Slack's own read cursor for conversations this app still thinks are unread, so reading a
  * message in Slack's official app clears it here too. Slack has no read-cursor event on the Events
- * API, so this is polled — but only for locally-unread conversations, which keeps it to a handful
- * of conversations.info calls per list refresh rather than one per conversation.
+ * API, so this is polled — but only for locally-unread conversations (a handful of concurrent
+ * conversations.info calls per list refresh, not one per conversation). Runs *before* the heavier
+ * per-conversation message sync so it still completes on platforms with short request timeouts.
  */
 export async function syncReadCursorsFromSlack(userId: string, installation: { workspaceId: string }): Promise<void> {
   const [conversations, readStates] = await Promise.all([
@@ -216,15 +217,32 @@ export async function syncReadCursorsFromSlack(userId: string, installation: { w
   if (unread.length === 0) return;
 
   const client = await getSlackClientForWorkspace(userId, installation.workspaceId);
-  for (const conversation of unread) {
-    const info = await client.conversations.info({ channel: conversation.slackConversationId }).catch(() => null);
-    const slackLastRead = info?.channel?.last_read;
-    if (!slackLastRead) continue;
-    const local = readMap.get(conversation.id);
-    if (!local || slackLastRead > local) {
-      await markConversationRead(userId, conversation.id, slackLastRead, { pushToSlack: false });
-    }
-  }
+  let updated = 0;
+  await Promise.all(
+    unread.map(async (conversation) => {
+      const info = await client.conversations.info({ channel: conversation.slackConversationId }).catch(() => null);
+      const channel = info?.channel as
+        | { last_read?: string; unread_count?: number; unread_count_display?: number; latest?: { ts?: string } }
+        | undefined;
+      if (!channel) return;
+
+      // Prefer Slack's cursor; if Slack reports nothing unread but gives no cursor, treat the
+      // newest root we know of as read.
+      let slackLastRead = channel.last_read;
+      const slackUnread = channel.unread_count_display ?? channel.unread_count;
+      if ((!slackLastRead || slackLastRead === "0000000000.000000") && slackUnread === 0) {
+        slackLastRead = channel.latest?.ts ?? conversation.lastMessageTs ?? undefined;
+      }
+      if (!slackLastRead) return;
+
+      const local = readMap.get(conversation.id);
+      if (!local || slackLastRead > local) {
+        await markConversationRead(userId, conversation.id, slackLastRead, { pushToSlack: false });
+        updated++;
+      }
+    })
+  );
+  logger.info("Synced read cursors from Slack", { checked: unread.length, updated });
 }
 
 /** Returns this conversation's members, resolved to display names (used by the @-mention picker). */
@@ -297,6 +315,17 @@ export async function syncConversationsForUser(userId: string): Promise<void> {
   } while (cursor);
 }
 
+/** The newest cached root (non-reply) message in a conversation, if any. */
+async function latestRootMessage(conversationId: string): Promise<{ slackTs: string } | null> {
+  const recent = await prisma.message.findMany({
+    where: { conversationId },
+    orderBy: { slackTs: "desc" },
+    take: 25,
+    select: { slackTs: true, threadTs: true },
+  });
+  return recent.find((m) => !m.threadTs || m.threadTs === m.slackTs) ?? null;
+}
+
 /**
  * Fetches history for a conversation and upserts it into the DB. When messages are already
  * cached, only fetches what's newer than the latest cached message (via `oldest`) instead of
@@ -307,11 +336,12 @@ export async function syncConversationsForUser(userId: string): Promise<void> {
 export async function syncMessages(userId: string, conversation: Conversation, limit = 50): Promise<Message[]> {
   const client = await getSlackClientForWorkspace(userId, conversation.workspaceId);
 
-  const latestCached = await prisma.message.findFirst({
-    where: { conversationId: conversation.id },
-    orderBy: { slackTs: "desc" },
-    select: { slackTs: true },
-  });
+  // Only root messages count as "the latest" here: conversations.history never returns thread
+  // replies, and a reply cached via the webhook can be newer than any root. Using a reply's ts as
+  // `oldest` would skip roots posted before it, and treating it as the conversation's last
+  // message keeps the conversation "unread" after Slack's own read cursor (which only tracks
+  // roots) has moved past everything.
+  const latestCached = await latestRootMessage(conversation.id);
 
   const res = await client.conversations.history({
     channel: conversation.slackConversationId,
@@ -353,11 +383,13 @@ export async function syncMessages(userId: string, conversation: Conversation, l
     if (latestCached) newlyArrived.push(row);
   }
 
-  const latestTs = res.messages?.[0]?.ts;
-  if (latestTs) {
+  // Keep lastMessageTs pointing at the newest *root* message (see latestRootMessage) — this also
+  // repairs rows that were previously advanced by a thread reply.
+  const latestRoot = res.messages?.[0]?.ts ?? latestCached?.slackTs;
+  if (latestRoot && latestRoot !== conversation.lastMessageTs) {
     await prisma.conversation.update({
       where: { id: conversation.id },
-      data: { lastMessageAt: tsToDate(latestTs), lastMessageTs: latestTs },
+      data: { lastMessageAt: tsToDate(latestRoot), lastMessageTs: latestRoot },
     });
   }
 
@@ -476,6 +508,10 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
     }),
   ]);
 
+  await syncReadCursorsFromSlack(userId, installation).catch((err) =>
+    logger.warn("Failed to sync read cursors from Slack", { message: (err as Error).message })
+  );
+
   const startedAt = Date.now();
 
   for (const conversation of conversations) {
@@ -514,10 +550,6 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
       }).catch((err) => logger.error("Failed to send push notification", { message: (err as Error).message }));
     }
   }
-
-  await syncReadCursorsFromSlack(userId, installation).catch((err) =>
-    logger.warn("Failed to sync read cursors from Slack", { message: (err as Error).message })
-  );
 }
 
 /** Sends a message as the authorizing user, then upserts it locally so the UI reflects it instantly. */
@@ -554,10 +586,14 @@ export async function postMessage(
     },
   });
 
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: { lastMessageAt: tsToDate(res.ts), lastMessageTs: res.ts },
-  });
+  // Thread replies don't move the conversation's "latest message" — Slack's own read cursor only
+  // tracks root messages, and treating a reply as the latest would leave the conversation unread.
+  if (!threadTs) {
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: tsToDate(res.ts), lastMessageTs: res.ts },
+    });
+  }
 }
 
 /** Edits a message the authorizing user sent, then reflects the new text locally. */
@@ -818,10 +854,12 @@ async function handleMessageEvent(
     },
   });
 
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: { lastMessageAt: tsToDate(ts), lastMessageTs: ts },
-  });
+  if (threadTs === ts) {
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: tsToDate(ts), lastMessageTs: ts },
+    });
+  }
 
   if (isNewMessage && authorSlackId && authorSlackId !== notify.selfSlackUserId) {
     const allowed = await notificationAllowed(notify.userId, {

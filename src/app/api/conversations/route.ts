@@ -26,3 +26,7 @@ export async function GET() {
     return NextResponse.json({ error: "failed" }, { status: 500 });
   }
 }
+
+// These call Slack (sometimes several times) per request; the platform default timeout on some
+// hosts is 10s, which is easy to hit during a first sync.
+export const maxDuration = 60;
