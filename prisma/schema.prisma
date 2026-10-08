@@ -28,6 +28,26 @@ model User {
 
   // Which of this user's connected workspaces the app is currently showing. Null = most recent.
   activeWorkspaceId String?
+
+  // Claimed atomically by the list-refresh sync so several open tabs/devices polling at once
+  // don't each run a full Slack sweep (and each decide the same message is "new").
+  lastListSyncAt DateTime?
+
+  messageNotifications MessageNotification[]
+}
+
+// One row per (user, message) that has been pushed as a notification. Both notify paths — the
+// Events API webhook and the polling fallback — insert here first and only send when the insert
+// succeeds, so a message that reaches the server twice (or is seen by concurrent polls) notifies once.
+model MessageNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId])
 }
 
 // Server-side session record backing the HttpOnly session cookie.
@@ -213,6 +233,7 @@ model Message {
 
   reactions Reaction[]
   savedBy   SavedMessage[]
+  notifications MessageNotification[]
 
   @@unique([conversationId, slackTs])
   @@index([conversationId, threadTs])

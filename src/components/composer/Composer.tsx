@@ -19,6 +19,8 @@ import { useClickOutside } from "@/hooks/useClickOutside";
 import { EmojiPicker } from "@/components/composer/EmojiPicker";
 import type { EmojiEntry } from "@/lib/ui/emoji";
 import type { Member } from "@/types/chat";
+import { classifyLocalFile } from "@/lib/slack/messageFiles";
+import { FileKindIcon } from "@/components/conversation/FileKindIcon";
 
 const TYPING_PING_INTERVAL_MS = 3000;
 const MAX_TEXTAREA_PX = 200;
@@ -73,19 +75,20 @@ function PendingAttachment({ file, onRemove }: { file: File; onRemove: () => voi
   const url = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
 
-  const isAudio = file.type.startsWith("audio/");
-  const isImage = file.type.startsWith("image/");
+  const kind = classifyLocalFile(file.name, file.type);
 
   return (
     <div className="card-surface flex items-center gap-2 rounded-xl px-3 py-2 text-sm">
-      {isImage && (
+      {kind === "image" ? (
         // eslint-disable-next-line @next/next/no-img-element -- local object URL preview, not a static/remote asset
         <img src={url} alt={file.name} className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+      ) : (
+        kind !== "audio" && <FileKindIcon kind={kind} size="sm" />
       )}
-      {isAudio ? (
+      {kind === "audio" ? (
         <audio controls src={url} className="h-8 min-w-0 flex-1" />
       ) : (
-        <span className="min-w-0 flex-1 truncate">{isImage ? file.name : `📎 ${file.name}`}</span>
+        <span className="min-w-0 flex-1 truncate">{file.name}</span>
       )}
       <button
         type="button"

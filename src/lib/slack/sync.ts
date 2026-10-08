@@ -315,6 +315,24 @@ export async function syncConversationsForUser(userId: string): Promise<void> {
   } while (cursor);
 }
 
+/**
+ * Claims the right to notify this user about this message. Returns false when it has already been
+ * claimed — by the webhook, by another concurrent poll, or by this poll on an earlier pass — so a
+ * push goes out exactly once per (user, message) no matter how many paths see the message.
+ */
+async function claimNotification(userId: string, messageId: string): Promise<boolean> {
+  try {
+    await prisma.messageNotification.create({ data: { userId, messageId } });
+    return true;
+  } catch (err) {
+    if ((err as { code?: string }).code === "P2002") return false;
+    throw err;
+  }
+}
+
+// Several open tabs/devices each poll the list; only one of them needs to run the Slack sweep.
+const LIST_SYNC_MIN_INTERVAL_MS = 10_000;
+
 /** The newest cached root (non-reply) message in a conversation, if any. */
 async function latestRootMessage(conversationId: string): Promise<{ slackTs: string } | null> {
   const recent = await prisma.message.findMany({
@@ -493,6 +511,18 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
   const installation = await getActiveInstallation(userId);
   if (!installation) return;
 
+  // Atomic claim: whichever tab/device gets here first within the window does the work, the rest
+  // just read the list. Without this, three open tabs meant three concurrent sweeps that could
+  // each see the same new message.
+  const claimed = await prisma.user.updateMany({
+    where: {
+      id: userId,
+      OR: [{ lastListSyncAt: null }, { lastListSyncAt: { lt: new Date(Date.now() - LIST_SYNC_MIN_INTERVAL_MS) } }],
+    },
+    data: { lastListSyncAt: new Date() },
+  });
+  if (claimed.count === 0) return;
+
   const [conversations, self] = await Promise.all([
     prisma.conversation.findMany({
       where: { workspaceId: installation.workspaceId, isMember: true, isArchived: false },
@@ -541,6 +571,7 @@ export async function syncAllConversationsAndNotify(userId: string): Promise<voi
         isThreadReply: Boolean(msg.threadTs && msg.threadTs !== msg.slackTs),
       });
       if (!allowed) continue;
+      if (!(await claimNotification(userId, msg.id))) continue;
 
       const author = await prisma.slackUser.findUnique({ where: { id: msg.authorId } });
       await sendPushToUser(userId, {
@@ -837,7 +868,7 @@ async function handleMessageEvent(
 
   const isNewMessage = event.subtype !== "message_changed";
 
-  await prisma.message.upsert({
+  const savedMessage = await prisma.message.upsert({
     where: { conversationId_slackTs: { conversationId: conversation.id, slackTs: ts } },
     update: {
       text,
@@ -870,6 +901,7 @@ async function handleMessageEvent(
       isThreadReply: threadTs !== ts,
     });
     if (!allowed) return;
+    if (!(await claimNotification(notify.userId, savedMessage.id))) return;
 
     await sendPushToUser(notify.userId, {
       title: authorName ?? "New message",

@@ -5,6 +5,8 @@ import { SlackText } from "@/lib/slack/formatSlackText";
 import { emojiGlyph } from "@/lib/ui/emoji";
 import { EmojiGlyph, ReactionEmoji } from "@/lib/ui/EmojiGlyph";
 import { VoiceTranscript } from "@/components/conversation/VoiceTranscript";
+import { FileKindIcon, fileKindLabel } from "@/components/conversation/FileKindIcon";
+import { Download } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { avatarGradient, initials } from "@/lib/ui/avatar";
 import { EmojiPicker } from "@/components/composer/EmojiPicker";
@@ -25,8 +27,13 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const FILE_CARD =
+  "mt-2 flex max-w-xs flex-col gap-1 rounded-xl border border-black/[.08] bg-white/60 px-3 py-2 text-sm shadow-sm dark:border-white/[.145] dark:bg-black/20";
+
 function FileAttachment({ file }: { file: SlackFileView }) {
-  if (file.isImage) {
+  const href = file.proxyUrl ?? file.externalUrl ?? "#";
+
+  if (file.kind === "image" && file.proxyUrl) {
     return (
       <a href={file.proxyUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block max-w-xs">
         {/* eslint-disable-next-line @next/next/no-img-element -- proxied, dynamic-origin image; next/image would need domain config for our own route */}
@@ -39,9 +46,9 @@ function FileAttachment({ file }: { file: SlackFileView }) {
     );
   }
 
-  if (file.isAudio) {
+  if (file.kind === "audio" && file.proxyUrl) {
     return (
-      <div className="mt-2 flex max-w-xs flex-col gap-1 rounded-xl border border-black/[.08] bg-white/60 px-3 py-2 text-sm shadow-sm dark:border-white/[.145] dark:bg-black/20">
+      <div className={FILE_CARD}>
         <span className="truncate font-medium">🎤 {file.name}</span>
         <audio controls src={file.proxyUrl} className="w-full" />
         <VoiceTranscript fileId={file.id} proxyUrl={file.proxyUrl} />
@@ -49,17 +56,36 @@ function FileAttachment({ file }: { file: SlackFileView }) {
     );
   }
 
+  if (file.kind === "video" && file.proxyUrl) {
+    return (
+      <div className={FILE_CARD}>
+        <span className="truncate font-medium">{file.name}</span>
+        <video controls preload="metadata" src={file.proxyUrl} className="w-full rounded-lg" />
+      </div>
+    );
+  }
+
+  // Everything else — PDF, Word, Excel, PowerPoint, archives, code, plain files — gets a typed card.
+  const extension = file.name.includes(".") ? file.name.split(".").pop()!.toUpperCase() : file.filetype.toUpperCase();
   return (
     <a
-      href={file.proxyUrl}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="mt-2 flex max-w-xs flex-col gap-0.5 rounded-xl border border-black/[.08] bg-white/60 px-3 py-2 text-sm shadow-sm hover:bg-white dark:border-white/[.145] dark:bg-black/20 dark:hover:bg-black/40"
+      download={file.proxyUrl ? file.name : undefined}
+      className={`${FILE_CARD} flex-row items-center gap-3 hover:bg-white dark:hover:bg-black/40`}
     >
-      <span className="truncate font-medium">📎 {file.name}</span>
-      <span className="text-xs text-zinc-500 dark:text-zinc-400">
-        {file.filetype.toUpperCase()} {formatFileSize(file.size)}
+      <FileKindIcon kind={file.kind} />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate font-medium">{file.name}</span>
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+          {fileKindLabel(file.kind)}
+          {extension ? ` · ${extension}` : ""}
+          {file.size > 0 ? ` · ${formatFileSize(file.size)}` : ""}
+          {!file.proxyUrl && file.externalUrl ? " · opens in Slack" : ""}
+        </span>
       </span>
+      <Download size={16} className="shrink-0 text-zinc-400 dark:text-zinc-500" aria-hidden />
     </a>
   );
 }
