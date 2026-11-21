@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { ExternalLink, LoaderCircle, Search, TriangleAlert } from "lucide-react";
 import { SlackText } from "@/lib/slack/formatSlackText";
+import { formatFullDateTime } from "@/lib/slack/messageTime";
 import type { SearchOutcome } from "@/server/services/search";
 
 const DEBOUNCE_MS = 400;
@@ -50,33 +51,39 @@ export function SearchPanel() {
 
   return (
     <div className="flex flex-col gap-4">
-      <label className="card-surface flex items-center gap-2 rounded-full px-4 py-2">
-        <Search size={18} className="shrink-0 text-zinc-500 dark:text-zinc-400" />
+      <label className="flex h-11 items-center gap-2.5 rounded-xl border border-line bg-surface px-3.5 shadow-sm focus-within:border-accent">
+        <Search size={18} className="shrink-0 text-subtle" />
         <input
           autoFocus
           value={query}
           onChange={(e) => handleChange(e.target.value)}
-          placeholder="Search messages… (supports Slack syntax like in:#channel, from:@name)"
-          className="min-w-0 flex-1 bg-transparent text-black outline-none dark:text-zinc-50"
+          placeholder="Search messages — try in:#channel or from:@name"
+          className="min-w-0 flex-1 bg-transparent text-[15px] text-fg outline-none placeholder:text-subtle"
         />
+        {loading && <LoaderCircle size={16} className="shrink-0 animate-spin text-subtle" aria-label="Searching" />}
       </label>
 
-      {loading && <p className="text-sm text-zinc-500 dark:text-zinc-400">Searching…</p>}
-
       {outcome?.error === "missing_scope" && (
-        <div className="flex flex-col gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
-          <p>⚠️ Your Slack connection is missing the search permission.</p>
-          <a href="/api/oauth/slack" className="self-start rounded-full bg-amber-500/20 px-3 py-1 text-xs font-semibold hover:bg-amber-500/30">
-            Reconnect Slack
-          </a>
+        <div className="flex gap-2 rounded-lg bg-warning-soft px-3 py-2.5 text-sm text-warning">
+          <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+          <div className="flex flex-col gap-1.5">
+            <p>Your Slack connection is missing the search permission.</p>
+            <a href="/api/oauth/slack" className="self-start font-semibold underline underline-offset-2">
+              Reconnect Slack
+            </a>
+          </div>
         </div>
       )}
-      {outcome?.error === "failed" && <p className="text-sm text-red-500">Search didn&apos;t work just now. Try again.</p>}
+      {outcome?.error === "failed" && <p className="text-sm text-danger">Search didn&apos;t work just now. Try again.</p>}
 
       {outcome && !outcome.error && !loading && (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="text-xs text-subtle">
           {outcome.total === 0 ? "No messages match." : `${outcome.total} result${outcome.total === 1 ? "" : "s"}`}
         </p>
+      )}
+
+      {!query.trim() && (
+        <p className="py-10 text-center text-sm text-subtle">Search everything you can see in Slack, newest first.</p>
       )}
 
       <ul className="flex flex-col gap-2">
@@ -87,19 +94,22 @@ export function SearchPanel() {
           const external = !r.conversationId;
           const card = (
             <>
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-xs font-semibold text-zinc-500 dark:text-zinc-400">{r.conversationLabel}</span>
-                <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">
-                  {new Date(r.createdAt).toLocaleString("en-GB", { hour12: false })}
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="flex min-w-0 items-center gap-1 truncate font-medium text-muted">
+                  {r.conversationLabel}
+                  {external && <ExternalLink size={11} className="shrink-0" aria-label="Opens in Slack" />}
                 </span>
+                <span className="shrink-0 tabular-nums text-subtle">{formatFullDateTime(new Date(r.createdAt))}</span>
               </div>
-              <div className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
-                <span className="font-medium">{r.authorName}:</span>
-                <SlackText text={r.text} userNames={{}} />
+              <div className="mt-1.5 text-sm text-fg">
+                <span className="font-semibold">{r.authorName}</span>
+                <div className="line-clamp-4 text-muted">
+                  <SlackText text={r.text} userNames={{}} />
+                </div>
               </div>
             </>
           );
-          const className = "card-surface block rounded-2xl px-4 py-3 transition-all hover:-translate-y-0.5 hover:shadow-lg";
+          const className = "card-surface block rounded-xl px-4 py-3 transition-colors hover:border-line-strong";
           return (
             <li key={r.id}>
               {external ? (

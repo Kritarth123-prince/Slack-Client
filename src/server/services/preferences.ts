@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db/prisma";
 import { getSlackClientForUser } from "@/lib/slack/client";
 import { logger } from "@/lib/logger";
 import { getActiveInstallation } from "@/lib/slack/installation";
+import { READ_MARK_SCOPES, hasScope } from "@/lib/slack/scopes";
+import { getEnv } from "@/lib/env";
 
 export type Theme = "system" | "light" | "dark";
 export type Density = "comfortable" | "compact";
@@ -87,6 +89,39 @@ export async function updatePreferences(userId: string, input: UpdatePreferences
 
   const view = await getPreferences(userId);
   return { ...view, slackSyncWarning };
+}
+
+export interface SlackSyncStatus {
+  /** Reading here clears unread in Slack's own apps (conversations.mark) — needs optional write scopes. */
+  readToSlack: {
+    enabled: boolean;
+    /** Scopes still missing from the current connection. */
+    missingScopes: string[];
+    /** Whether SLACK_EXTRA_USER_SCOPES already asks for them (then only a reconnect is needed). */
+    requested: boolean;
+  };
+  /** When the events webhook last delivered anything; null if it never has (polling only). */
+  lastEventAt: string | null;
+}
+
+/** What the Settings page needs to explain how this app stays in step with Slack. */
+export async function getSlackSyncStatus(userId: string): Promise<SlackSyncStatus> {
+  const [installation, lastEvent] = await Promise.all([
+    getActiveInstallation(userId),
+    prisma.processedSlackEvent.findFirst({ orderBy: { processedAt: "desc" }, select: { processedAt: true } }),
+  ]);
+  const needed = Object.values(READ_MARK_SCOPES);
+  const missingScopes = needed.filter((scope) => !installation || !hasScope(installation.scopes, scope));
+  const extra = (getEnv().SLACK_EXTRA_USER_SCOPES ?? "").split(",").map((s) => s.trim());
+
+  return {
+    readToSlack: {
+      enabled: missingScopes.length === 0,
+      missingScopes,
+      requested: needed.every((scope) => extra.includes(scope)),
+    },
+    lastEventAt: lastEvent?.processedAt.toISOString() ?? null,
+  };
 }
 
 /** Pushes a new display name to the user's Slack profile, then mirrors it locally. Returns a warning string when Slack rejected it. */

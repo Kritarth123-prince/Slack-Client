@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth/session";
+import { getAccessibleConversation } from "@/server/services/access";
 import { prisma } from "@/lib/db/prisma";
 import { setMessagePinned } from "@/lib/slack/sync";
 import { logger } from "@/lib/logger";
@@ -9,7 +10,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!userId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const { id, messageId } = await params;
-  const conversation = await prisma.conversation.findUnique({ where: { id } });
+  const conversation = await getAccessibleConversation(userId, id);
   if (!conversation) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   const message = await prisma.message.findFirst({ where: { id: messageId, conversationId: conversation.id } });

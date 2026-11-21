@@ -1,12 +1,12 @@
 {
   "name": "Slack Web",
   "short_name": "Slack Web",
-  "description": "A personal Slack client.",
+  "description": "A fast, focused client for your Slack workspace.",
   "start_url": "/app",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#6366f1",
+  "background_color": "#f4f5f7",
+  "theme_color": "#0f766e",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },

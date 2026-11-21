@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth/session";
-import { prisma } from "@/lib/db/prisma";
+import { getAccessibleConversation } from "@/server/services/access";
 import { markConversationRead } from "@/lib/slack/sync";
 
 /** Moves the read cursor — used for "mark as unread from here" (cursor set to just before a message). */
@@ -9,7 +9,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!userId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const { id } = await params;
-  const conversation = await prisma.conversation.findUnique({ where: { id }, select: { id: true } });
+  const conversation = await getAccessibleConversation(userId, id);
   if (!conversation) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   const body = (await request.json().catch(() => null)) as { lastReadTs?: unknown } | null;

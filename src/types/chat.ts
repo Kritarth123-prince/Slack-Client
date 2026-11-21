@@ -17,6 +17,8 @@ export interface MessageView {
   threadTs: string | null;
   text: string;
   createdAt: string;
+  /** The author's cached SlackUser row id — a stable key for grouping consecutive messages. */
+  authorId: string | null;
   authorName: string;
   authorAvatarUrl: string | null;
   isSelf: boolean;

@@ -3,13 +3,14 @@ import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { forwardMessage } from "@/lib/slack/sync";
 import { logger } from "@/lib/logger";
+import { getAccessibleConversation } from "@/server/services/access";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string; messageId: string }> }) {
   const userId = await requireUserId();
   if (!userId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const { id, messageId } = await params;
-  const conversation = await prisma.conversation.findUnique({ where: { id } });
+  const conversation = await getAccessibleConversation(userId, id);
   if (!conversation) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   const message = await prisma.message.findFirst({ where: { id: messageId, conversationId: conversation.id } });

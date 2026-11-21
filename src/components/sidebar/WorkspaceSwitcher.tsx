@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Plus } from "lucide-react";
+import { Check, ChevronDown, Plus } from "lucide-react";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { WorkspaceBadge } from "@/components/sidebar/WorkspaceBadge";
 import type { WorkspaceOption } from "@/lib/slack/installation";
@@ -35,20 +35,21 @@ export function WorkspaceSwitcher({ workspaces }: { workspaces: WorkspaceOption[
   }
 
   return (
-    <div ref={ref} className="relative min-w-0">
+    <div ref={ref} className="relative min-w-0 flex-1">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full min-w-0 items-center gap-1 rounded-xl px-1 py-1 text-left hover:bg-black/[.04] dark:hover:bg-white/[.06]"
+        className="flex w-full min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-left hover:bg-surface-2"
         aria-haspopup="menu"
         aria-expanded={open}
       >
         <WorkspaceBadge branding={active ? { name: active.name, domain: active.domain, iconUrl: active.iconUrl } : null} />
-        <ChevronDown size={16} className="ml-auto shrink-0 text-zinc-500 dark:text-zinc-400" />
+        <ChevronDown size={16} className="ml-auto shrink-0 text-subtle" />
       </button>
 
       {open && (
-        <div className="card-surface absolute left-0 z-30 mt-1 w-64 rounded-xl p-1 text-sm" role="menu">
+        <div className="popover-surface absolute left-0 z-30 mt-1 w-64 rounded-xl p-1 text-sm" role="menu">
+          <p className="px-2 pt-1.5 pb-1 text-xs font-medium text-subtle">Workspaces</p>
           {workspaces.map((w) => (
             <button
               key={w.id}
@@ -57,27 +58,26 @@ export function WorkspaceSwitcher({ workspaces }: { workspaces: WorkspaceOption[
               aria-checked={w.active}
               disabled={switching}
               onClick={() => (w.active ? setOpen(false) : switchTo(w.id))}
-              className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-black/[.04] dark:hover:bg-white/[.05] ${
-                w.active ? "font-semibold" : ""
-              }`}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-fg hover:bg-surface-2"
             >
               {w.iconUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element -- external Slack CDN URL
                 <img src={w.iconUrl} alt="" className="h-6 w-6 shrink-0 rounded-md object-cover" />
               ) : (
-                <span className="btn-primary flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs text-white">
+                <span className="btn-primary flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold">
                   {w.name.slice(0, 1).toUpperCase()}
                 </span>
               )}
-              <span className="min-w-0 flex-1 truncate">{w.name}</span>
-              {w.active && <span className="text-xs text-[var(--brand-from)]">✓</span>}
+              <span className={`min-w-0 flex-1 truncate ${w.active ? "font-medium" : ""}`}>{w.name}</span>
+              {w.active && <Check size={15} className="shrink-0 text-accent-text" />}
             </button>
           ))}
-          <a
-            href="/api/oauth/slack"
-            className="mt-1 flex items-center gap-2 rounded-lg border-t border-black/[.06] px-2 py-1.5 text-zinc-600 hover:bg-black/[.04] dark:border-white/[.08] dark:text-zinc-300 dark:hover:bg-white/[.05]"
-          >
-            <Plus size={14} /> Add another workspace
+          <div className="my-1 border-t border-line" />
+          <a href="/api/oauth/slack" className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-muted hover:bg-surface-2 hover:text-fg">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md border border-dashed border-line-strong">
+              <Plus size={14} />
+            </span>
+            Add another workspace
           </a>
         </div>
       )}

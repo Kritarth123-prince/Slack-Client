@@ -41,12 +41,12 @@ export function VoiceTranscript({ fileId, proxyUrl }: { fileId: string; proxyUrl
   }, [fileId, proxyUrl]);
 
   if (transcriptionDisabled) return null;
-  if (!result) return <span className="text-[11px] italic text-zinc-400 dark:text-zinc-500">Transcribing…</span>;
+  if (!result) return <span className="text-[11px] italic text-subtle">Transcribing…</span>;
   if (result.status !== "ready") return null;
 
   return (
-    <p className="whitespace-pre-wrap text-xs text-zinc-600 dark:text-zinc-300" title={result.language ? `Detected language: ${result.language}` : undefined}>
-      <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Transcript</span>
+    <p className="whitespace-pre-wrap text-xs text-muted" title={result.language ? `Detected language: ${result.language}` : undefined}>
+      <span className="mr-1 text-[11px] font-medium text-subtle">Transcript</span>
       {result.text}
     </p>
   );

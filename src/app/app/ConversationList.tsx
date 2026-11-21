@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { avatarGradient, initials } from "@/lib/ui/avatar";
+import { BellOff, ChevronDown } from "lucide-react";
+import { ConversationGlyph } from "@/components/conversation/ConversationGlyph";
 
 export interface ConversationListItem {
   id: string;
@@ -18,34 +19,11 @@ export interface ConversationListItem {
 
 const POLL_INTERVAL_MS = 15000;
 
-function ConversationAvatar({ item, compact }: { item: ConversationListItem; compact: boolean }) {
-  const isChannel = item.type === "PUBLIC_CHANNEL" || item.type === "PRIVATE_CHANNEL";
-  const size = compact ? "h-8 w-8 text-xs rounded-lg" : "h-10 w-10 text-sm rounded-xl";
-
-  if (item.avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element -- external Slack CDN URL, not a local/static asset
-      <img src={item.avatarUrl} alt="" className={`${size} shrink-0 object-cover shadow-sm`} />
-    );
-  }
-
-  return (
-    <div
-      className={`${size} flex shrink-0 items-center justify-center font-semibold text-white`}
-      style={{ backgroundImage: avatarGradient(item.id) }}
-    >
-      {isChannel ? "#" : initials(item.label)}
-    </div>
-  );
-}
-
 function UnreadBadge({ count }: { count: number }) {
-  if (count <= 0) {
-    return <span className="btn-primary h-2.5 w-2.5 shrink-0 rounded-full" aria-label="Unread" />;
-  }
+  if (count <= 0) return <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="Unread" />;
   return (
     <span
-      className="btn-primary flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold text-white"
+      className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-accent-fg tabular-nums"
       aria-label={`${count} unread`}
     >
       {count > 99 ? "99+" : count}
@@ -53,7 +31,68 @@ function UnreadBadge({ count }: { count: number }) {
   );
 }
 
-export function ConversationList({ initial, compact = false }: { initial: ConversationListItem[]; compact?: boolean }) {
+function Row({ item, active }: { item: ConversationListItem; active: boolean }) {
+  const emphasised = item.unread && !item.muted;
+  return (
+    <li>
+      <Link
+        href={`/app/${item.id}`}
+        aria-current={active ? "page" : undefined}
+        className={`flex h-8 items-center gap-2 rounded-md px-2 text-sm transition-colors ${
+          active
+            ? "bg-accent-soft text-accent-text"
+            : emphasised
+              ? "text-fg hover:bg-surface-2"
+              : "text-muted hover:bg-surface-2 hover:text-fg"
+        }`}
+      >
+        <ConversationGlyph type={item.type} label={item.label} avatarUrl={item.avatarUrl} seed={item.id} />
+        <span className={`min-w-0 flex-1 truncate ${emphasised || active ? "font-semibold" : ""} ${item.muted ? "opacity-60" : ""}`}>
+          {item.label}
+        </span>
+        {item.muted && <BellOff size={13} className="shrink-0 text-subtle" aria-label="Muted" />}
+        {emphasised && <UnreadBadge count={item.unreadCount} />}
+      </Link>
+    </li>
+  );
+}
+
+function Section({
+  title,
+  items,
+  pathname,
+}: {
+  title: string;
+  items: ConversationListItem[];
+  pathname: string;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  if (items.length === 0) return null;
+  const unreadHidden = collapsed ? items.filter((i) => i.unread && !i.muted) : [];
+  // A collapsed section still shows what needs attention, like Slack.
+  const visible = collapsed ? [...unreadHidden, ...items.filter((i) => pathname === `/app/${i.id}` && !unreadHidden.includes(i))] : items;
+
+  return (
+    <section className="mb-3">
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        aria-expanded={!collapsed}
+        className="flex h-7 w-full items-center gap-1 rounded-md px-2 text-xs font-semibold text-subtle hover:text-fg"
+      >
+        <ChevronDown size={14} className={`transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+        {title}
+      </button>
+      <ul className="flex flex-col gap-px">
+        {visible.map((item) => (
+          <Row key={item.id} item={item} active={pathname === `/app/${item.id}`} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function ConversationList({ initial }: { initial: ConversationListItem[] }) {
   const [items, setItems] = useState<ConversationListItem[]>(initial);
   const pathname = usePathname();
 
@@ -72,12 +111,6 @@ export function ConversationList({ initial, compact = false }: { initial: Conver
           if (!cancelled && data?.conversations) setItems(data.conversations);
         })
         .catch(() => {});
-
-      // Activity heartbeat IS gated on visibility, unlike the sync above — this is what "away
-      // after inactivity" measures, so a backgrounded/unfocused tab must NOT count as activity.
-      if (document.visibilityState === "visible") {
-        fetch("/api/status/heartbeat", { method: "POST" }).catch(() => {});
-      }
     }
 
     // Refresh immediately on mount (e.g. returning here after reading a thread) instead of
@@ -102,56 +135,22 @@ export function ConversationList({ initial, compact = false }: { initial: Conver
 
   if (items.length === 0) {
     return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        No conversations found yet. Make sure you&apos;re a member of at least one channel or DM in Slack.
+      <p className="px-2 py-6 text-center text-sm text-subtle">
+        No conversations yet. Join a channel or start a DM in Slack and it&apos;ll appear here.
       </p>
     );
   }
 
+  const starred = items.filter((i) => i.pinned);
+  const rest = items.filter((i) => !i.pinned);
+  const channels = rest.filter((i) => i.type === "PUBLIC_CHANNEL" || i.type === "PRIVATE_CHANNEL");
+  const direct = rest.filter((i) => i.type === "DM" || i.type === "GROUP_DM");
+
   return (
-    <ul className={`flex flex-col ${compact ? "gap-1" : "gap-2"}`}>
-      {items.map((c) => {
-        const active = pathname === `/app/${c.id}`;
-        return (
-          <li key={c.id}>
-            <Link
-              href={`/app/${c.id}`}
-              aria-current={active ? "page" : undefined}
-              className={`group flex items-center gap-3 transition-all ${
-                compact
-                  ? `rounded-xl px-2.5 py-2 ${active ? "bg-[color-mix(in_srgb,var(--brand-from)_12%,transparent)]" : "hover:bg-black/[.04] dark:hover:bg-white/[.06]"}`
-                  : `card-surface rounded-2xl px-4 py-3 hover:-translate-y-0.5 hover:shadow-lg ${
-                      c.unread ? "ring-1 ring-inset ring-[color-mix(in_srgb,var(--brand-from)_35%,transparent)]" : ""
-                    }`
-              }`}
-            >
-              <ConversationAvatar item={c} compact={compact} />
-              <span
-                className={`min-w-0 flex-1 truncate ${compact ? "text-sm" : ""} ${
-                  c.muted
-                    ? "text-zinc-400 dark:text-zinc-500"
-                    : c.unread || active
-                      ? "font-semibold text-black dark:text-zinc-50"
-                      : "text-zinc-700 dark:text-zinc-300"
-                }`}
-              >
-                {c.label}
-              </span>
-              {c.pinned && (
-                <span className="shrink-0 text-[11px] text-zinc-400 dark:text-zinc-500" title="Pinned" aria-label="Pinned">
-                  ★
-                </span>
-              )}
-              {c.muted && (
-                <span className="shrink-0 text-[11px] text-zinc-400 dark:text-zinc-500" title="Muted" aria-label="Muted">
-                  🔕
-                </span>
-              )}
-              {c.unread && !c.muted && <UnreadBadge count={c.unreadCount} />}
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
+    <div>
+      <Section title="Starred" items={starred} pathname={pathname} />
+      <Section title="Direct messages" items={direct} pathname={pathname} />
+      <Section title="Channels" items={channels} pathname={pathname} />
+    </div>
   );
 }
