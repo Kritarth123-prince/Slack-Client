@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Bell, Smartphone, X } from "lucide-react";
 
 function urlBase64ToUint8Array(base64: string): Uint8Array {
   const padding = "=".repeat((4 - (base64.length % 4)) % 4);
@@ -10,6 +11,8 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
 }
 
 type Status = "checking" | "unsupported" | "ios-not-installed" | "enabled" | "disabled";
+
+const DISMISS_KEY = "notification-prompt-dismissed";
 
 function isPushSupported(): boolean {
   return typeof navigator !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
@@ -33,12 +36,27 @@ function initialStatus(): Status {
   return "unsupported";
 }
 
+function wasDismissed(): boolean {
+  try {
+    return localStorage.getItem(DISMISS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** A compact prompt in the sidebar to turn on push notifications for this device. Dismissible. */
 export function NotificationSetup() {
-  const [status, setStatus] = useState<Status>(initialStatus);
+  const [status, setStatus] = useState<Status>("checking");
+  const [dismissed, setDismissed] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isPushSupported()) return;
+    // Read browser-only state after mount so the server render and first client render match.
+    const initial = initialStatus();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from browser APIs that don't exist during SSR
+    setStatus(initial);
+    setDismissed(wasDismissed());
+    if (initial !== "checking") return;
 
     navigator.serviceWorker
       .register("/sw.js")
@@ -47,12 +65,21 @@ export function NotificationSetup() {
       .catch(() => setStatus("disabled"));
   }, []);
 
+  function dismiss() {
+    setDismissed(true);
+    try {
+      localStorage.setItem(DISMISS_KEY, "1");
+    } catch {
+      // private mode — it'll just show again next time
+    }
+  }
+
   async function enable() {
     setError(null);
     try {
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        setError("Notifications were blocked. Enable them in your browser's site settings.");
+        setError("Notifications are blocked. Allow them in your browser's site settings.");
         return;
       }
 
@@ -77,35 +104,35 @@ export function NotificationSetup() {
     }
   }
 
-  if (status === "checking" || status === "unsupported" || status === "enabled") return null;
+  if (dismissed || status === "checking" || status === "unsupported" || status === "enabled") return null;
 
-  if (status === "ios-not-installed") {
-    return (
-      <div className="card-surface flex items-center gap-3 rounded-2xl px-4 py-3">
-        <span className="text-lg" aria-hidden>
-          📲
-        </span>
-        <p className="flex-1 text-sm text-zinc-600 dark:text-zinc-400">
-          iPhone only allows notifications for apps added to your Home Screen. Tap the Share
-          button in Safari, then &ldquo;Add to Home Screen&rdquo;, and open it from there to
-          enable notifications.
-        </p>
-      </div>
-    );
-  }
+  const ios = status === "ios-not-installed";
+  const Icon = ios ? Smartphone : Bell;
 
   return (
-    <div className="card-surface flex items-center gap-3 rounded-2xl px-4 py-3">
-      <span className="text-lg" aria-hidden>
-        🔔
-      </span>
-      <p className="flex-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Enable notifications to hear about new messages even when this tab is closed.
-      </p>
-      <button onClick={enable} className="btn-primary rounded-full px-4 py-2 text-sm font-semibold text-white">
-        Enable
+    <div className="relative flex gap-2.5 rounded-lg border border-line bg-surface p-2.5 text-xs">
+      <Icon size={16} className="mt-0.5 shrink-0 text-accent-text" />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <p className="pr-4 text-muted">
+          {ios
+            ? "To get notifications on iPhone, tap Share in Safari, then “Add to Home Screen”, and open the app from there."
+            : "Get notified about new messages, even when this tab is closed."}
+        </p>
+        {!ios && (
+          <button type="button" onClick={enable} className="btn-primary h-7 self-start rounded-md px-2.5 font-semibold">
+            Turn on notifications
+          </button>
+        )}
+        {error && <p className="text-danger">{error}</p>}
+      </div>
+      <button
+        type="button"
+        onClick={dismiss}
+        aria-label="Dismiss"
+        className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-md text-subtle hover:bg-surface-2 hover:text-fg"
+      >
+        <X size={13} />
       </button>
-      {error && <p className="text-sm text-red-500">{error}</p>}
     </div>
   );
 }

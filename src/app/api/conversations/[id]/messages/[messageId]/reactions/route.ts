@@ -3,7 +3,8 @@ import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { addReaction, removeReaction } from "@/lib/slack/sync";
 import { logger } from "@/lib/logger";
-import { getActiveInstallation } from "@/lib/slack/installation";
+import { getInstallationForWorkspace } from "@/lib/slack/installation";
+import { getAccessibleConversation } from "@/server/services/access";
 
 export async function POST(
   request: NextRequest,
@@ -13,7 +14,7 @@ export async function POST(
   if (!userId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const { id, messageId } = await params;
-  const conversation = await prisma.conversation.findUnique({ where: { id } });
+  const conversation = await getAccessibleConversation(userId, id);
   if (!conversation) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   const message = await prisma.message.findFirst({ where: { id: messageId, conversationId: conversation.id } });
@@ -23,7 +24,7 @@ export async function POST(
   const emoji = typeof body?.emoji === "string" ? body.emoji : "";
   if (!emoji) return NextResponse.json({ error: "missing_emoji" }, { status: 400 });
 
-  const installation = await getActiveInstallation(userId);
+  const installation = await getInstallationForWorkspace(userId, conversation.workspaceId);
   if (!installation) return NextResponse.json({ error: "not_connected" }, { status: 409 });
 
   const self = await prisma.slackUser.findUnique({

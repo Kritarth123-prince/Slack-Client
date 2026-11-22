@@ -49,12 +49,16 @@ export interface NotificationContext {
   text: string;
   selfSlackUserId: string;
   isThreadReply: boolean;
+  /** For a thread reply: whether the user started or has replied in that thread. */
+  inThread?: boolean;
 }
 
 /**
  * Applies the user's notification preferences (DND, quiet hours, and which kinds of message
  * should notify) to one incoming message. Mentions win over the per-conversation-type toggles,
- * so an @-mention in a muted channel still gets through when mentions are on.
+ * so an @-mention in a muted channel still gets through when mentions are on. Thread replies only
+ * notify for threads the user is part of (or in their DMs) — like Slack, rather than for every
+ * reply in every channel.
  */
 export async function notificationAllowed(userId: string, ctx: NotificationContext): Promise<boolean> {
   const [pref, setting] = await Promise.all([
@@ -71,8 +75,9 @@ export async function notificationAllowed(userId: string, ctx: NotificationConte
 
   const isMention = ctx.text.includes(`<@${ctx.selfSlackUserId}>`) || /<!(here|channel|everyone)>/.test(ctx.text);
   if (isMention) return pref.notifyMentions;
-  if (ctx.isThreadReply) return pref.notifyThreadReplies;
-  if (ctx.conversationType === "DM" || ctx.conversationType === "GROUP_DM") return pref.notifyDirectMessages;
+  const isDirect = ctx.conversationType === "DM" || ctx.conversationType === "GROUP_DM";
+  if (ctx.isThreadReply) return pref.notifyThreadReplies && (isDirect || Boolean(ctx.inThread));
+  if (isDirect) return pref.notifyDirectMessages;
   return pref.notifyChannelMessages;
 }
 

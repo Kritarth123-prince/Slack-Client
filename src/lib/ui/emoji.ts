@@ -624,6 +624,29 @@ export function lookupEmojiGlyph(name: string): string | null {
   return EMOJI_BY_NAME.get(name)?.glyph ?? null;
 }
 
+// Variation selector 16 is optional on many glyphs (☕ vs ☕️), so it's ignored when matching.
+const stripVariation = (glyph: string) => glyph.replace(/️/g, "");
+const EMOJI_BY_GLYPH = new Map(EMOJI_LIST.map((e) => [stripVariation(e.glyph), e.name]));
+
+/** The Slack shortcode (without colons) for a standard emoji glyph, or null when it isn't in the curated set. */
+export function emojiNameForGlyph(glyph: string): string | null {
+  return EMOJI_BY_GLYPH.get(stripVariation(glyph.trim())) ?? null;
+}
+
+/**
+ * Normalises a status emoji to the `:shortcode:` form Slack's profile API requires — it rejects
+ * raw glyphs. Accepts a shortcode (with or without colons) or a standard glyph; returns "" when
+ * there's nothing Slack could accept.
+ */
+export function toSlackEmojiCode(value: string | null | undefined): string {
+  const v = (value ?? "").trim();
+  if (!v) return "";
+  const bare = v.replace(/^:|:$/g, "");
+  if (/^[a-z0-9_+\-']+$/.test(bare)) return `:${bare}:`;
+  const name = emojiNameForGlyph(v);
+  return name ? `:${name}:` : "";
+}
+
 export function searchEmoji(query: string, limit = 60): EmojiEntry[] {
   const q = query.trim().toLowerCase();
   // No query: show the whole curated set (the picker's grid scrolls) rather than an arbitrary

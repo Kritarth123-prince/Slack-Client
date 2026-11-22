@@ -1,12 +1,14 @@
+// Muted, mid-tone fills that all carry white initials comfortably and sit quietly next to real
+// profile photos — distinct enough to tell people apart without looking like a sweet shop.
 const PALETTE = [
-  ["#6366f1", "#8b5cf6"], // indigo -> violet
-  ["#ec4899", "#f43f5e"], // pink -> rose
-  ["#06b6d4", "#3b82f6"], // cyan -> blue
-  ["#f59e0b", "#ef4444"], // amber -> red
-  ["#10b981", "#14b8a6"], // emerald -> teal
-  ["#8b5cf6", "#d946ef"], // violet -> fuchsia
-  ["#f97316", "#ec4899"], // orange -> pink
-  ["#22c55e", "#0ea5e9"], // green -> sky
+  "#3b6e8f", // slate blue
+  "#2f7d6d", // pine
+  "#8a5a44", // clay
+  "#6b5b95", // dusk
+  "#a2574f", // brick
+  "#4f7a3a", // moss
+  "#9a6b1f", // ochre
+  "#5a6b7d", // steel
 ];
 
 function hashString(value: string): number {
@@ -18,10 +20,9 @@ function hashString(value: string): number {
   return Math.abs(hash);
 }
 
-/** Deterministic gradient (as a CSS background-image value) for a given name/id, so the same person always gets the same colour. */
-export function avatarGradient(seed: string): string {
-  const [from, to] = PALETTE[hashString(seed) % PALETTE.length];
-  return `linear-gradient(135deg, ${from}, ${to})`;
+/** Deterministic background colour for a given name/id, so the same person always gets the same colour. */
+export function avatarColor(seed: string): string {
+  return PALETTE[hashString(seed) % PALETTE.length];
 }
 
 export function initials(name: string): string {

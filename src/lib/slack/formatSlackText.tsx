@@ -133,7 +133,7 @@ function renderInline(text: string, key: string): ReactNode {
         );
       case "code":
         return (
-          <code key={k} className="rounded bg-black/[.06] px-1 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
+          <code key={k} className="slack-code">
             {seg.value}
           </code>
         );
@@ -149,28 +149,25 @@ function renderTokens(tokens: Token[], userNames: Record<string, string>, keyPre
         return <span key={key}>{renderInline(tok.value, key)}</span>;
       case "codeblock":
         return (
-          <pre
-            key={key}
-            className="my-1 overflow-x-auto rounded-lg bg-black/[.06] p-2 font-mono text-[0.85em] dark:bg-white/[.08]"
-          >
+          <pre key={key} className="slack-pre">
             {tok.value}
           </pre>
         );
       case "mention":
         return (
-          <span key={key} className="rounded bg-blue-500/10 px-1 font-medium text-blue-600 dark:text-blue-400">
+          <span key={key} className="slack-mention">
             @{userNames[tok.id] ?? tok.label ?? tok.id}
           </span>
         );
       case "channel":
         return (
-          <span key={key} className="font-medium text-blue-600 dark:text-blue-400">
+          <span key={key} className="slack-channel">
             #{tok.label ?? tok.id}
           </span>
         );
       case "broadcast":
         return (
-          <span key={key} className="rounded bg-amber-500/10 px-1 font-medium text-amber-600 dark:text-amber-400">
+          <span key={key} className="slack-broadcast">
             @{tok.value}
           </span>
         );
@@ -181,7 +178,7 @@ function renderTokens(tokens: Token[], userNames: Record<string, string>, keyPre
             href={tok.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-600 underline dark:text-blue-400"
+            className="slack-link"
           >
             {tok.label}
           </a>
@@ -220,10 +217,7 @@ export function SlackText({ text, userNames }: { text: string; userNames: Record
       <div className="whitespace-pre-wrap break-words">
         {blocks.map((block, i) =>
           block.quote ? (
-            <blockquote
-              key={i}
-              className="my-0.5 border-l-2 border-zinc-300 pl-2 text-zinc-600 dark:border-zinc-600 dark:text-zinc-300"
-            >
+            <blockquote key={i} className="slack-quote">
               {renderTokens(parseSlackText(block.text), userNames, `q${i}`)}
             </blockquote>
           ) : (

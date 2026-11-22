@@ -3,16 +3,18 @@ import { requireUserId } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { editMessage, deleteMessage } from "@/lib/slack/sync";
 import { logger } from "@/lib/logger";
-import { getActiveInstallation } from "@/lib/slack/installation";
+import { getInstallationForWorkspace } from "@/lib/slack/installation";
+import { getAccessibleConversation } from "@/server/services/access";
 
 async function loadOwnMessage(userId: string, conversationId: string, messageId: string) {
-  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+  const conversation = await getAccessibleConversation(userId, conversationId);
   if (!conversation) return { error: NextResponse.json({ error: "not_found" }, { status: 404 }) } as const;
 
   const message = await prisma.message.findFirst({ where: { id: messageId, conversationId: conversation.id } });
   if (!message) return { error: NextResponse.json({ error: "not_found" }, { status: 404 }) } as const;
 
-  const installation = await getActiveInstallation(userId);
+  // The conversation's own workspace, not whichever one is being viewed — your Slack identity differs per workspace.
+  const installation = await getInstallationForWorkspace(userId, conversation.workspaceId);
   if (!installation) return { error: NextResponse.json({ error: "not_connected" }, { status: 409 }) } as const;
 
   const self = await prisma.slackUser.findUnique({

@@ -7,11 +7,10 @@ import { encryptToken } from "@/lib/slack/tokenCipher";
 import { logger } from "@/lib/logger";
 import { SLACK_USER_SCOPES } from "@/lib/slack/scopes";
 
-// Every failure redirects to a single UI route with a `?error=` code the
-// login page renders as a specific, actionable message (see
-// src/app/(marketing)/login/page.tsx) rather than a raw stack trace.
+// Every failure redirects to the sign-in page with a `?error=` code it renders as a specific,
+// actionable message (see src/app/page.tsx) rather than a raw stack trace.
 function errorRedirect(baseUrl: string, code: string) {
-  return NextResponse.redirect(`${baseUrl}/login?error=${encodeURIComponent(code)}`);
+  return NextResponse.redirect(`${baseUrl}/?error=${encodeURIComponent(code)}`);
 }
 
 export async function GET(request: NextRequest) {

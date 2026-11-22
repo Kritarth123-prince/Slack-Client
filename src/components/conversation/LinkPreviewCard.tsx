@@ -39,21 +39,21 @@ export function LinkPreviewCard({ url }: { url: string }) {
       href={preview.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="mt-1 flex max-w-xs overflow-hidden rounded-xl border border-black/[.08] bg-white/60 text-left text-sm shadow-sm hover:bg-white dark:border-white/[.145] dark:bg-black/20 dark:hover:bg-black/40"
+      className="mt-1 flex w-80 max-w-full overflow-hidden rounded-xl border border-line border-l-[3px] border-l-line-strong bg-surface text-left text-sm shadow-sm hover:border-line-strong"
     >
       {preview.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element -- arbitrary third-party Open Graph image
-        <img src={preview.imageUrl} alt="" className="h-auto w-20 shrink-0 object-cover" loading="lazy" />
+        <img src={preview.imageUrl} alt="" className="h-auto w-20 shrink-0 border-r border-line object-cover" loading="lazy" />
       )}
       <span className="flex min-w-0 flex-col gap-0.5 px-3 py-2">
         {preview.siteName && (
-          <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          <span className="truncate text-xs font-medium text-subtle">
             {preview.siteName}
           </span>
         )}
-        {preview.title && <span className="line-clamp-2 font-medium text-zinc-800 dark:text-zinc-100">{preview.title}</span>}
+        {preview.title && <span className="line-clamp-2 font-semibold text-accent-text">{preview.title}</span>}
         {preview.description && (
-          <span className="line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{preview.description}</span>
+          <span className="line-clamp-2 text-xs text-muted">{preview.description}</span>
         )}
       </span>
     </a>

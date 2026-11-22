@@ -4,14 +4,26 @@ import { decryptToken } from "@/lib/slack/tokenCipher";
 import { getActiveInstallation, getInstallationForWorkspace } from "@/lib/slack/installation";
 import { logger } from "@/lib/logger";
 
-function clientFor(installation: SlackInstallation): WebClient {
+export interface SlackClientOptions {
+  /**
+   * For background work (the list sweep): a rate-limited call fails straight away instead of the
+   * client sleeping out Slack's Retry-After, so one throttled conversation can't stall the sweep
+   * past its time budget — it's simply picked up again on a later pass.
+   */
+  background?: boolean;
+}
+
+function clientFor(installation: SlackInstallation, options: SlackClientOptions = {}): WebClient {
   const token = decryptToken({
     ciphertext: installation.encryptedAccessToken,
     iv: installation.tokenIv,
     authTag: installation.tokenAuthTag,
   });
   return new WebClient(token, {
-    retryConfig: { retries: 4, factor: 2, minTimeout: 500, maxTimeout: 8000 },
+    retryConfig: options.background
+      ? { retries: 1, factor: 2, minTimeout: 500, maxTimeout: 2000 }
+      : { retries: 4, factor: 2, minTimeout: 500, maxTimeout: 8000 },
+    rejectRateLimitedCalls: options.background ?? false,
   });
 }
 
@@ -19,8 +31,8 @@ function clientFor(installation: SlackInstallation): WebClient {
  * Builds a Slack WebClient for a specific installation. The decrypted token lives only in process
  * memory for the duration of the request — it is never returned to the caller or logged.
  */
-export function getSlackClientForInstallation(installation: SlackInstallation): WebClient {
-  return clientFor(installation);
+export function getSlackClientForInstallation(installation: SlackInstallation, options?: SlackClientOptions): WebClient {
+  return clientFor(installation, options);
 }
 
 /** A client for the user's currently active workspace (see getActiveInstallation). */
@@ -34,10 +46,14 @@ export async function getSlackClientForUser(userId: string): Promise<WebClient> 
  * A client for a specific workspace — used whenever the action is about a conversation, since the
  * conversation's workspace may not be the one the user currently has switched to.
  */
-export async function getSlackClientForWorkspace(userId: string, workspaceId: string): Promise<WebClient> {
+export async function getSlackClientForWorkspace(
+  userId: string,
+  workspaceId: string,
+  options?: SlackClientOptions
+): Promise<WebClient> {
   const installation = await getInstallationForWorkspace(userId, workspaceId);
   if (!installation) throw new SlackNotConnectedError(userId);
-  return clientFor(installation);
+  return clientFor(installation, options);
 }
 
 export class SlackNotConnectedError extends Error {

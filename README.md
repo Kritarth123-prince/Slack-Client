@@ -14,11 +14,14 @@ It exists because Slack's official web/desktop client doesn't run well (or at al
 - Slack-formatted text rendering (mentions, channel refs, links, quotes, bold/italic/strike/code, `:emoji:` shortcodes)
 - Link previews — the first URL in a message unfurls into a title/description/image card
 - "New messages" divider at your last-read point when you open a chat, and "Mark unread from here" in a message's menu
-- Read state stays in step with Slack: reading a conversation in Slack's own app clears it here (Slack's `last_read` is polled for unread conversations), and reading here can clear it in Slack too — see `SLACK_EXTRA_USER_SCOPES`
+- Read state stays in step with Slack: reading a conversation in Slack's own app clears it here (Slack's `last_read` is polled for unread conversations), and reading here clears it in Slack too once the optional write scopes are granted — see `SLACK_EXTRA_USER_SCOPES`. *Settings → Sync with Slack* shows which directions are on and exactly what's missing
 - Every message shows its time (24-hour, your local zone; hover for the full date) and the feed is split by day
 - Numeric unread counts per conversation, not just a dot; pin favourites to the top and mute chats you don't want notifications from
 - Ctrl+K quick switcher — jump to any conversation by typing part of its name
 - "Remind me about this" on any message (in 20 min / 1 h / 3 h / tomorrow / next week / custom) via Slack's own reminders
+- **Clear history** (any conversation): hides everything so far from *your* view in this app only — nothing changes in Slack, and it can be undone from the same menu
+- **Delete my messages** (DMs and group DMs): permanently deletes every message you sent in that conversation from Slack, for everyone, including your thread replies — with a confirmation, live progress, rate-limit back-off and a Stop button
+- Edits, deletions, reactions and new thread replies made in Slack show up here even without the events webhook (the open conversation re-reads its recent history every ~20 seconds)
 
 **Threads**
 - Root messages show a "💬 N replies" pill; opening it slides in a dedicated thread panel with its own composer
@@ -65,8 +68,9 @@ It exists because Slack's official web/desktop client doesn't run well (or at al
 - Pin / unpin, save for later (personal bookmarks), forward to another conversation
 
 **Presence, status & notifications**
-- Custom status text/emoji with optional auto-expiry, Active/Away, Do Not Disturb, auto-away after inactivity
-- Web Push notifications, filtered by your notification settings and quiet hours
+- Custom status (emoji picker + presets) with optional expiry, Automatic/Away presence, Do Not Disturb — applied to every connected workspace, and picked up from Slack when changed in Slack's own apps
+- The status menu shows what colleagues actually see in Slack. Slack lets apps set *Away* but decides *Active* itself from activity in its own apps, so the menu says so rather than pretending otherwise
+- Web Push notifications, filtered by your notification settings and quiet hours; thread replies only notify for threads you've started or replied in (or in your DMs)
 
 ## Tech stack
 
@@ -125,6 +129,7 @@ Setting up the Slack App itself (OAuth redirect URL, scopes, event subscriptions
 | `npm run dev` | Start the dev server |
 | `npm run build` / `npm start` | Production build / start |
 | `npm run lint` | ESLint |
+| `npm test` | Unit tests (Vitest) |
 | `npx tsc --noEmit` | Type-check without building |
 | `npx prisma migrate dev` | Create/apply a migration in development |
 | `npx prisma studio` | Browse the database |
@@ -140,8 +145,9 @@ src/
     app/                 signed-in UI: layout (sidebar), conversation list, [id] conversation,
                          search, settings, saved
   components/
-    sidebar/             Sidebar, WorkspaceBadge
-    conversation/        MessageBubble, LinkPreviewCard, TypingLine
+    sidebar/             AppFrame (responsive shell), Sidebar, SidebarNav, WorkspaceSwitcher, QuickSwitcher
+    conversation/        MessageBubble, ConversationGlyph, DeleteMyMessagesDialog, LinkPreviewCard, TypingLine
+    ui/                  Dialog / ConfirmDialog, PageHeader
     composer/            Composer (multi-line text, formatting, @mentions, emoji, attach/paste/drop,
                          voice notes, send later), EmojiPicker, ScheduledList
     thread/              ThreadPanel
@@ -149,8 +155,9 @@ src/
     settings/            SettingsForm
     pwa/                 service worker registration
   hooks/                 useDraft, useAudioRecorder, useClickOutside
-  server/services/       conversations, search, workspace, preferences, linkPreview, presenceSignals,
-                         scheduled, reminders, customEmoji, transcription, conversationSettings
+  server/services/       access (conversation permission check), conversations, messages, conversationHistory,
+                         search, workspace, preferences, linkPreview, presenceSignals, scheduled, reminders,
+                         customEmoji, transcription, conversationSettings
   lib/
     slack/               Slack client, sync (history, threads, uploads, reactions, events), scopes,
                          text formatting, file/link helpers, presence
@@ -158,11 +165,15 @@ src/
     auth/, db/, push.ts  sessions, Prisma client, push + notification policy
   types/                 shared TypeScript types
 prisma/                  schema + migrations
+tests/unit/              Vitest unit tests
 docs/                    slack-app-setup.md, TECHNICAL.md, project overview (.docx)
 ```
 
 ## Known limitations
 
+- **Presence can't be forced to Active.** Slack only lets apps set a user *Away* or hand presence back to Slack; it shows you as Active only while one of its own apps is open and in use ([Slack's presence docs](https://docs.slack.dev/apis/web-api/user-presence-and-status)). Choosing *Automatic* here does exactly that, and the status menu shows Slack's real verdict.
+- **One app user per Slack workspace.** Each person can connect several workspaces, but conversations are cached per workspace, not per person, so two people connecting the *same* workspace to one deployment would see each other's conversation list (and webhook notifications go to the most recently connected person). Access checks stop anyone reading a workspace they haven't connected. Fixing this properly needs a per-user membership table.
+- **Read sync to Slack needs optional scopes.** Without `channels:write`, `groups:write`, `im:write`, `mpim:write`, reading here can't clear unread in Slack's apps (the other direction always works).
 - **Typing indicators and read receipts are app-local.** Slack only emits typing over RTM/Socket Mode (not the Web API), and never exposes per-user read state to anyone. Both features here are backed by this app's own tables, so they show what other users of *this client* are doing — never what someone is doing in Slack's official apps. They are labelled as such in the UI.
 - **History depth.** Each conversation syncs the most recent messages on first open (and everything newer after that); there's no "load older" pagination yet, so search results for very old messages open the conversation without scrolling to the exact message.
 - **Voice-note transcription needs an endpoint.** Nothing is bundled — set `TRANSCRIPTION_API_URL` (and a key if the service needs one) or the feature stays hidden.

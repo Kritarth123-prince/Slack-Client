@@ -5,46 +5,102 @@
    script in the root layout, which also tracks OS changes live. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/* Design tokens. A quiet neutral base with a single deep-teal accent, used sparingly: primary
+   actions, your own messages, unread counts and focus. Everything else is greys, so the accent
+   always means something. Components use the Tailwind names registered under @theme below
+   (bg-surface, text-muted, border-line, bg-accent, …), so dark mode is just a token swap. */
 :root {
-  --background: #f7f7fb;
-  --foreground: #17172a;
+  --canvas: #f4f5f7;
   --surface: #ffffff;
-  --surface-muted: #f1f1f8;
-  --border: rgba(23, 23, 42, 0.08);
-  --brand-from: #6366f1;
-  --brand-to: #ec4899;
-  --shadow-color: 220 40% 60%;
+  --surface-2: #f1f3f5;
+  --surface-3: #e7eaee;
+  --sidebar: #f8f9fa;
+  --fg: #101828;
+  --muted: #475467;
+  --subtle: #6b7585;
+  --line: #e3e6ea;
+  --line-strong: #cfd4dc;
+
+  --accent: #0f766e;
+  --accent-hover: #0c5f58;
+  --accent-fg: #ffffff;
+  --accent-text: #0f766e;
+  --accent-soft: #e5f3f1;
+
+  --success: #12a150;
+  --danger: #d92d20;
+  --danger-soft: #fdeceb;
+  --warning: #b54708;
+  --warning-soft: #fef4e6;
+
+  --mention-fg: #175cd3;
+  --mention-bg: #eaf1fd;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-md: 0 1px 3px rgb(16 24 40 / 0.06), 0 6px 16px -6px rgb(16 24 40 / 0.1);
+  --shadow-lg: 0 4px 8px -2px rgb(16 24 40 / 0.06), 0 16px 32px -8px rgb(16 24 40 / 0.18);
   color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-surface: var(--surface);
-  --color-surface-muted: var(--surface-muted);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
 :root[data-theme="dark"] {
-  --background: #0b0b14;
-  --foreground: #ededf3;
-  --surface: #15151f;
-  --surface-muted: #1c1c29;
-  --border: rgba(255, 255, 255, 0.08);
-  --shadow-color: 260 60% 15%;
+  --canvas: #0c0e12;
+  --surface: #14171c;
+  --surface-2: #1b1f26;
+  --surface-3: #242932;
+  --sidebar: #101317;
+  --fg: #e8eaed;
+  --muted: #a9b1bc;
+  --subtle: #7f8995;
+  --line: #242a32;
+  --line-strong: #343b45;
+
+  --accent: #0f7a71;
+  --accent-hover: #12907f;
+  --accent-fg: #ffffff;
+  --accent-text: #4cc7b6;
+  --accent-soft: rgb(45 212 191 / 0.12);
+
+  --success: #32d583;
+  --danger: #f97066;
+  --danger-soft: rgb(249 112 102 / 0.12);
+  --warning: #fdb022;
+  --warning-soft: rgb(253 176 34 / 0.12);
+
+  --mention-fg: #84adff;
+  --mention-bg: rgb(132 173 255 / 0.14);
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 1px 3px rgb(0 0 0 / 0.35), 0 8px 20px -8px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 4px 10px -2px rgb(0 0 0 / 0.4), 0 20px 40px -10px rgb(0 0 0 / 0.6);
   color-scheme: dark;
 }
 
-/* Message density (Settings → Compact) tightens the gap between messages in a feed. */
-.message-feed {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-:root[data-density="compact"] .message-feed {
-  gap: 0.375rem;
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-sidebar: var(--sidebar);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-text: var(--accent-text);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
 html {
@@ -52,10 +108,25 @@ html {
 }
 
 body {
-  background: radial-gradient(circle at top, color-mix(in srgb, var(--brand-from) 6%, var(--background)) 0%, var(--background) 55%);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  color: var(--fg);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -64,7 +135,9 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--brand-from) 35%, transparent);
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
   border-radius: 999px;
 }
 
@@ -72,30 +145,130 @@ body {
   background: transparent;
 }
 
-.gradient-text {
-  background-image: linear-gradient(135deg, var(--brand-from), var(--brand-to));
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
+/* Component classes live in the components layer so Tailwind utilities (hover:, disabled:, …)
+   can still override them. */
+@layer components {
+  /* Message density (Settings → Compact) tightens the gap between messages in a feed. A message
+     that continues the previous one (same sender, a few minutes later) tucks up under it. */
+  .message-feed {
+    --feed-gap: 0.875rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--feed-gap);
+  }
+
+  :root[data-density="compact"] .message-feed {
+    --feed-gap: 0.375rem;
+  }
+
+  .message-feed > [data-continuation="true"] {
+    margin-top: calc(0.125rem - var(--feed-gap));
+  }
+
+  /* Primary action: solid accent, no gradients. */
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    transition: background-color 120ms ease, opacity 120ms ease;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  /* A raised surface: cards, popovers, menus. */
+  .card-surface {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .popover-surface {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Slack text tokens (see formatSlackText). Inside your own (accent-filled) bubbles they inherit
+     the bubble's text colour instead, so links and mentions stay readable. */
+  .slack-link {
+    color: var(--mention-fg);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .slack-mention,
+  .slack-broadcast {
+    border-radius: 4px;
+    padding: 0 3px;
+    font-weight: 500;
+    color: var(--mention-fg);
+    background: var(--mention-bg);
+  }
+
+  .slack-channel {
+    font-weight: 500;
+    color: var(--mention-fg);
+  }
+
+  .slack-code {
+    border-radius: 4px;
+    padding: 0.05em 0.3em;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 0.88em;
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+  }
+
+  .slack-pre {
+    margin: 0.25rem 0;
+    overflow-x: auto;
+    border-radius: 8px;
+    padding: 0.5rem 0.625rem;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 0.85em;
+    background: color-mix(in srgb, var(--fg) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--fg) 8%, transparent);
+  }
+
+  .slack-quote {
+    margin: 0.125rem 0;
+    border-left: 3px solid var(--line-strong);
+    padding-left: 0.5rem;
+    color: var(--muted);
+  }
+
+  .bubble-self .slack-link,
+  .bubble-self .slack-channel {
+    color: inherit;
+  }
+
+  .bubble-self .slack-mention,
+  .bubble-self .slack-broadcast,
+  .bubble-self .slack-code,
+  .bubble-self .slack-pre {
+    color: inherit;
+    background: rgb(255 255 255 / 0.16);
+    border-color: rgb(255 255 255 / 0.2);
+  }
+
+  .bubble-self .slack-quote {
+    color: inherit;
+    border-color: rgb(255 255 255 / 0.45);
+    opacity: 0.92;
+  }
 }
 
-.btn-primary {
-  background-image: linear-gradient(135deg, var(--brand-from), var(--brand-to));
-  box-shadow: 0 8px 24px -8px hsl(var(--shadow-color) / 0.5);
-  transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+/* A message reached from a search result or saved link briefly lights up. */
+@keyframes message-flash {
+  from {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  to {
+    background: transparent;
+  }
 }
 
-.btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 28px -8px hsl(var(--shadow-color) / 0.6);
-}
-
-.btn-primary:active {
-  transform: translateY(0);
-}
-
-.card-surface {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: 0 1px 2px hsl(var(--shadow-color) / 0.06), 0 8px 24px -12px hsl(var(--shadow-color) / 0.12);
+.message-highlight {
+  animation: message-flash 2.4s ease-out;
+  border-radius: 12px;
 }

@@ -172,6 +172,10 @@ model Conversation {
   lastSyncedCursor String? // Slack pagination cursor for incremental history sync
   lastMessageAt    DateTime?
   lastMessageTs    String? // Slack ts of the latest message, for cheap unread comparisons against ReadState
+  // When the background sweep last asked Slack for this conversation's history. The sweep can only
+  // afford a handful of conversations per pass, so it works through them oldest-polled first —
+  // without this, quiet conversations past the first few were never checked for new messages.
+  lastPolledAt     DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -294,6 +298,9 @@ model ReadState {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   lastReadTs String // last slackTs the user has seen
+  // Set when the cursor was moved *back* here ("mark unread from here"), cleared when it next
+  // moves forward. While set, an older read cursor pulled from Slack mustn't undo the rewind.
+  rewoundAt  DateTime?
   updatedAt  DateTime @updatedAt
 
   @@unique([userId, conversationId])
@@ -373,6 +380,10 @@ model ConversationSetting {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   pinned         Boolean      @default(false)
   muted          Boolean      @default(false)
+  // "Clear history": messages at or before this ts are hidden from this user's view only. A
+  // cursor rather than deleting rows, because Message rows are shared by everyone using this app
+  // in the workspace and the next sync would simply fetch them again.
+  clearedBeforeTs String?
   updatedAt      DateTime     @updatedAt
 
   @@unique([userId, conversationId])

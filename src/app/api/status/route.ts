@@ -24,7 +24,6 @@ export async function PATCH(request: NextRequest) {
 
   const input: UpdateStatusInput = {
     presence: body.presence === "active" || body.presence === "away" ? body.presence : undefined,
-    autoAwayEnabled: typeof body.autoAwayEnabled === "boolean" ? body.autoAwayEnabled : undefined,
     doNotDisturb: typeof body.doNotDisturb === "boolean" ? body.doNotDisturb : undefined,
     statusEmoji: body.statusEmoji === null || typeof body.statusEmoji === "string" ? body.statusEmoji : undefined,
     statusText: body.statusText === null || typeof body.statusText === "string" ? body.statusText : undefined,

@@ -77,3 +77,24 @@ export const SLACK_EVENT_SUBSCRIPTIONS = [
 ] as const;
 
 export const SLACK_SCOPES_STRING = SLACK_USER_SCOPES.join(",");
+
+/**
+ * The write scope conversations.mark needs for each kind of conversation — i.e. what it takes for
+ * reading a conversation *here* to clear it in Slack's own apps. Optional (requested only via
+ * SLACK_EXTRA_USER_SCOPES), so callers check the installation's granted scopes before trying.
+ */
+export const READ_MARK_SCOPES = {
+  PUBLIC_CHANNEL: "channels:write",
+  PRIVATE_CHANNEL: "groups:write",
+  DM: "im:write",
+  GROUP_DM: "mpim:write",
+} as const;
+
+export function hasScope(grantedScopes: string, scope: string): boolean {
+  return grantedScopes.split(/[\s,]+/).includes(scope);
+}
+
+/** Whether conversations.mark can be used for this kind of conversation with these granted scopes. */
+export function canMarkReadInSlack(grantedScopes: string, type: keyof typeof READ_MARK_SCOPES): boolean {
+  return hasScope(grantedScopes, READ_MARK_SCOPES[type]);
+}

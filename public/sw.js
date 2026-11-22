@@ -1,7 +1,7 @@
 // Service worker: web push (existing) + offline support (app shell, static assets, and the last
 // copy of each conversation so the app still opens and shows recent messages without a network).
 
-const CACHE_VERSION = "slack-web-v1";
+const CACHE_VERSION = "slack-web-v2";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -37,14 +37,16 @@ function isCacheableApi(url) {
   );
 }
 
-async function networkFirst(request, cacheName, fallback) {
+// `cacheKey` lets API responses be stored once per endpoint: the messages poll carries changing
+// query flags (reconcile/read), and a copy per variant would only bloat the cache.
+async function networkFirst(request, cacheName, fallback, cacheKey = request) {
   const cache = await caches.open(cacheName);
   try {
     const response = await fetch(request);
-    if (response.ok) cache.put(request, response.clone());
+    if (response.ok) cache.put(cacheKey, response.clone());
     return response;
   } catch {
-    const cached = await cache.match(request);
+    const cached = await cache.match(cacheKey);
     if (cached) return cached;
     if (fallback) return fallback();
     throw new Error("offline");
@@ -77,7 +79,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (isCacheableApi(url)) {
-    event.respondWith(networkFirst(request, API_CACHE));
+    event.respondWith(networkFirst(request, API_CACHE, undefined, url.origin + url.pathname));
   }
 });
 
@@ -107,12 +109,19 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = event.notification.data?.url || "/app";
 
+  // Reuse an open window of the app (taking it to the right conversation) rather than opening a
+  // new tab per notification; only open one if the app isn't open anywhere.
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      for (const client of clients) {
-        if (client.url.includes(url) && "focus" in client) return client.focus();
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
+      const target = new URL(url, self.location.origin).href;
+      const exact = clients.find((c) => c.url === target);
+      if (exact) return exact.focus();
+      const appWindow = clients.find((c) => new URL(c.url).origin === self.location.origin);
+      if (appWindow) {
+        const focused = await appWindow.focus();
+        return "navigate" in focused ? focused.navigate(target) : focused;
       }
-      if (self.clients.openWindow) return self.clients.openWindow(url);
+      if (self.clients.openWindow) return self.clients.openWindow(target);
     })
   );
 });

@@ -6,20 +6,18 @@ export function WorkspaceBadge({ branding, size = "md" }: { branding: WorkspaceB
   const iconClass = size === "lg" ? "h-10 w-10 rounded-xl text-base" : "h-8 w-8 rounded-lg text-sm";
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2.5">
       {branding?.iconUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- external Slack CDN URL, not a local/static asset
-        <img src={branding.iconUrl} alt="" className={`${iconClass} shrink-0 object-cover shadow-sm`} />
+        <img src={branding.iconUrl} alt="" className={`${iconClass} shrink-0 object-cover`} />
       ) : (
-        <div className={`btn-primary ${iconClass} flex shrink-0 items-center justify-center font-bold text-white`} aria-hidden>
+        <div className={`btn-primary ${iconClass} flex shrink-0 items-center justify-center font-semibold`} aria-hidden>
           {name.slice(0, 1).toUpperCase()}
         </div>
       )}
       <div className="min-w-0">
-        <p className={`gradient-text truncate font-bold ${size === "lg" ? "text-2xl tracking-tight" : "text-base"}`}>{name}</p>
-        {branding?.domain && (
-          <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">{branding.domain}.slack.com</p>
-        )}
+        <p className={`truncate font-semibold text-fg ${size === "lg" ? "text-xl tracking-tight" : "text-[15px] leading-tight"}`}>{name}</p>
+        {branding?.domain && <p className="truncate text-[11px] leading-tight text-subtle">{branding.domain}.slack.com</p>}
       </div>
     </div>
   );
