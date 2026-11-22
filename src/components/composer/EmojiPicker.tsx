@@ -6,6 +6,11 @@ import { searchEmoji, type EmojiEntry } from "@/lib/ui/emoji";
 import { EmojiGlyph } from "@/lib/ui/EmojiGlyph";
 import { useCustomEmoji } from "@/lib/ui/customEmoji";
 
+// Below sm the picker is a bottom sheet, like the message actions — a 288px popover anchored to a
+// button near the screen edge doesn't fit on a phone.
+const PHONE_SHEET =
+  "max-sm:fixed max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:z-50 max-sm:m-0 max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:p-2 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:max-h-[85dvh] max-sm:overflow-y-auto";
+
 export function EmojiPicker({
   onPick,
   align = "left",
@@ -16,6 +21,8 @@ export function EmojiPicker({
   placement?: "above" | "below";
 }) {
   const [query, setQuery] = useState("");
+  // On touch screens, focusing the search box would throw the keyboard up over the grid.
+  const [focusSearch] = useState(() => !window.matchMedia("(pointer: coarse)").matches);
   const custom = useCustomEmoji();
   const q = query.trim().toLowerCase();
   // Custom workspace emoji sit in front of the standard set so they're easy to spot; when searching,
@@ -30,19 +37,19 @@ export function EmojiPicker({
     <div
       className={`popover-surface absolute z-40 flex w-72 max-w-[85vw] flex-col gap-2 rounded-xl p-2 ${
         placement === "above" ? "bottom-full mb-1.5" : "top-full mt-1.5"
-      } ${align === "right" ? "right-0" : "left-0"}`}
+      } ${align === "right" ? "right-0" : "left-0"} ${PHONE_SHEET}`}
     >
       <label className="flex h-8 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2 focus-within:border-accent">
         <Search size={14} className="shrink-0 text-subtle" />
         <input
-          autoFocus
+          autoFocus={focusSearch}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search emoji"
           className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-subtle"
         />
       </label>
-      <div className="grid max-h-64 grid-cols-7 gap-0.5 overflow-y-auto sm:grid-cols-8">
+      <div className="grid max-h-64 grid-cols-8 gap-0.5 overflow-y-auto max-sm:max-h-[40vh] max-sm:justify-items-center">
         {results.map((entry) => (
           <button
             key={entry.name}
@@ -60,7 +67,7 @@ export function EmojiPicker({
           </button>
         ))}
         {results.length === 0 && (
-          <span className="col-span-7 py-4 text-center text-xs text-subtle sm:col-span-8">No emoji match</span>
+          <span className="col-span-8 py-4 text-center text-xs text-subtle">No emoji match</span>
         )}
       </div>
     </div>

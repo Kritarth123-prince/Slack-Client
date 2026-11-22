@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   AlarmClock,
   Bookmark,
@@ -38,6 +38,10 @@ import type { SlackFileView } from "@/lib/slack/messageFiles";
 const QUICK_REACTIONS = ["+1", "heart", "joy", "tada", "eyes", "white_check_mark"];
 // A popover opened from a message within this distance of the top of the screen opens downwards instead.
 const FLIP_BELOW_PX = 340;
+// Below sm every message popover becomes a bottom sheet: on a phone a menu floating beside a
+// message has nowhere to go and ran off the edge of the screen.
+const SHEET_ON_PHONE =
+  "max-sm:fixed max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:z-50 max-sm:m-0 max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:p-2 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:max-h-[85dvh] max-sm:overflow-y-auto";
 
 function formatFileSize(bytes: number): string {
   if (bytes <= 0) return "";
@@ -157,7 +161,7 @@ function MenuItem({
       type="button"
       role="menuitem"
       onClick={onClick}
-      className={`flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-sm ${
+      className={`flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-sm max-sm:h-11 max-sm:gap-3 max-sm:px-3 max-sm:text-[15px] ${
         danger ? "text-danger hover:bg-danger-soft" : "text-fg hover:bg-surface-2"
       }`}
     >
@@ -325,6 +329,22 @@ export function MessageBubble({
     }
   }
 
+  /**
+   * Phones have no hover, so tapping a message (anywhere but a link, button or player) opens its
+   * actions as a bottom sheet; larger touch screens reveal the toolbar instead.
+   */
+  function handleBodyTap(e: ReactMouseEvent<HTMLDivElement>) {
+    if (m.isDeleted || isEditing) return;
+    if ((e.target as HTMLElement).closest("a, button, audio, video, input, textarea, [data-message-actions]")) return;
+    if (window.getSelection()?.toString()) return; // finishing a text selection, not a tap
+    if (window.matchMedia("(max-width: 639.98px)").matches) {
+      closePopovers();
+      setMenuOpen(true);
+    } else if (window.matchMedia("(pointer: coarse)").matches) {
+      setTouchActive((v) => !v);
+    }
+  }
+
   function run(action: () => void) {
     return () => {
       closePopovers();
@@ -332,7 +352,7 @@ export function MessageBubble({
     };
   }
 
-  const popoverPosition = `${placeBelow ? "top-full mt-1" : "bottom-full mb-1"} ${m.isSelf ? "left-0" : "right-0"}`;
+  const popoverPosition = `${placeBelow ? "top-full mt-1" : "bottom-full mb-1"} ${m.isSelf ? "left-0" : "right-0"} ${SHEET_ON_PHONE}`;
   const toolbarVisible = anyPopoverOpen || touchActive;
 
   const timeLabel = (
@@ -373,7 +393,7 @@ export function MessageBubble({
           </div>
         )}
 
-        <div className={`relative flex min-w-0 max-w-full flex-col gap-1 ${m.isSelf ? "items-end" : "items-start"}`}>
+        <div onClick={handleBodyTap} className={`relative flex min-w-0 max-w-full flex-col gap-1 ${m.isSelf ? "items-end" : "items-start"}`}>
           {m.forwardedFrom && !m.isDeleted && (
             <div className="flex items-center gap-1 px-0.5 text-xs text-subtle">
               <Forward size={12} /> Forwarded from <span className="font-medium text-muted">{m.forwardedFrom.authorName}</span>
@@ -413,10 +433,6 @@ export function MessageBubble({
           ) : (
             m.text && (
               <div
-                onClick={(e) => {
-                  if ((e.target as HTMLElement).closest("a, button")) return;
-                  if (window.matchMedia("(pointer: coarse)").matches) setTouchActive((v) => !v);
-                }}
                 className={`px-3.5 py-2 text-[15px] leading-relaxed ${
                   m.isSelf
                     ? `bubble-self rounded-2xl bg-accent text-accent-fg ${continuation ? "" : "rounded-tr-md"}`
@@ -473,16 +489,18 @@ export function MessageBubble({
 
           {!m.isDeleted && !isEditing && (
             // Anchored to the message body (bubble, files, reactions) — not the name/time line above it,
-            // nor the far edge of the row — and never over the message's own text. From sm up it sits
-            // beside the bubble (right of theirs, left of yours), level with its first line; on phones a
-            // bubble can fill the width, so it sits just above it instead.
+            // nor the far edge of the row — and never over the message's own text: beside the bubble
+            // (right of theirs, left of yours), level with its first line. Phones don't show the
+            // toolbar at all; a tap opens the same actions as a bottom sheet (see handleBodyTap).
             <div
               ref={toolbarRef}
-              className={`absolute bottom-full z-10 mb-1 sm:top-1 sm:bottom-auto sm:mb-0 ${
-                m.isSelf ? "left-0 sm:left-auto sm:right-full sm:mr-2" : "right-0 sm:right-auto sm:left-full sm:ml-2"
-              } ${toolbarVisible ? "visible" : "invisible group-hover/msg:visible group-focus-within/msg:visible"}`}
+              data-message-actions
+              className={`absolute top-1 ${anyPopoverOpen ? "z-50" : "z-10"} ${m.isSelf ? "right-full mr-2" : "left-full ml-2"} ${
+                toolbarVisible ? "visible" : "invisible group-hover/msg:visible group-focus-within/msg:visible"
+              }`}
             >
-              <div className="popover-surface flex items-center gap-px rounded-lg p-0.5" role="toolbar" aria-label="Message actions">
+              {anyPopoverOpen && <div className="fixed inset-0 bg-black/40 sm:hidden" onClick={closePopovers} aria-hidden />}
+              <div className="popover-surface flex items-center gap-px rounded-lg p-0.5 max-sm:hidden" role="toolbar" aria-label="Message actions">
                 <ToolbarButton label="Add reaction" onClick={() => openPopover("picker")}>
                   <SmilePlus size={15} />
                 </ToolbarButton>
@@ -532,11 +550,50 @@ export function MessageBubble({
 
               {menuOpen && (
                 <div role="menu" className={`popover-surface absolute z-20 flex w-56 max-w-[85vw] flex-col rounded-xl p-1 ${popoverPosition}`}>
+                  <div className="sm:hidden">
+                    <div className="mx-auto mt-1 mb-2 h-1 w-10 rounded-full bg-line-strong" aria-hidden />
+                    <div className="mb-1 flex items-center justify-between border-b border-line px-1 pb-2">
+                      {QUICK_REACTIONS.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          title={`:${name}:`}
+                          onClick={() => {
+                            onToggleReaction(m.id, name);
+                            closePopovers();
+                          }}
+                          className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-xl"
+                        >
+                          <EmojiGlyph glyph={emojiGlyph(name)} />
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        aria-label="More emoji"
+                        onClick={() => {
+                          closePopovers();
+                          setPickerOpen(true);
+                          setFullPickerOpen(true);
+                        }}
+                        className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-muted"
+                      >
+                        <SmilePlus size={20} />
+                      </button>
+                    </div>
+                  </div>
                   {context === "feed" && (
                     <MenuItem icon={<MessageSquare size={15} />} onClick={run(() => onReply(m))}>
                       Reply in thread
                     </MenuItem>
                   )}
+                  <div className="sm:hidden">
+                    <MenuItem
+                      icon={m.savedByMe ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
+                      onClick={run(() => onToggleSave(m))}
+                    >
+                      {m.savedByMe ? "Remove from saved" : "Save for later"}
+                    </MenuItem>
+                  </div>
                   {m.text && (
                     <MenuItem icon={<Copy size={15} />} onClick={copyText}>
                       Copy text
@@ -595,7 +652,7 @@ export function MessageBubble({
                       key={p.label}
                       type="button"
                       onClick={() => remindAt(p.time)}
-                      className="flex h-8 items-center rounded-md px-2 text-left text-fg hover:bg-surface-2"
+                      className="flex h-8 items-center rounded-md px-2 text-left text-fg hover:bg-surface-2 max-sm:h-11 max-sm:px-3 max-sm:text-[15px]"
                     >
                       {p.label}
                     </button>
@@ -621,7 +678,7 @@ export function MessageBubble({
               )}
 
               {forwardOpen && (
-                <div className={`popover-surface absolute z-20 flex max-h-64 w-60 max-w-[85vw] flex-col overflow-y-auto rounded-xl p-1 text-sm ${popoverPosition}`}>
+                <div className={`popover-surface absolute z-20 flex max-h-64 w-60 max-w-[85vw] flex-col overflow-y-auto rounded-xl p-1 text-sm max-sm:max-h-[60vh] ${popoverPosition}`}>
                   <p className="px-2 pt-1.5 pb-1 text-xs font-medium text-subtle">Forward to…</p>
                   {forwardTargets === null && <p className="px-2 py-1.5 text-subtle">Loading…</p>}
                   {forwardTargets?.length === 0 && <p className="px-2 py-1.5 text-subtle">No conversations</p>}
@@ -633,7 +690,7 @@ export function MessageBubble({
                         setForwardOpen(false);
                         onForwardTo(m.id, t.id);
                       }}
-                      className="flex h-8 shrink-0 items-center truncate rounded-md px-2 text-left text-fg hover:bg-surface-2"
+                      className="flex h-8 shrink-0 items-center truncate rounded-md px-2 text-left text-fg hover:bg-surface-2 max-sm:h-11 max-sm:px-3 max-sm:text-[15px]"
                     >
                       <span className="truncate">{t.label}</span>
                     </button>

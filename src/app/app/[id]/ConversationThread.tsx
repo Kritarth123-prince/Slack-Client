@@ -554,7 +554,7 @@ export function ConversationThread({
                 <Pin size={15} /> {pinnedMessages.length}
               </button>
               {pinnedOpen && (
-                <div className="popover-surface absolute right-0 z-30 mt-1 flex max-h-80 w-80 max-w-[90vw] flex-col overflow-y-auto rounded-xl p-1">
+                <div className="popover-surface absolute right-0 z-30 mt-1 flex max-h-80 w-80 max-w-[90vw] flex-col overflow-y-auto rounded-xl p-1 max-sm:fixed max-sm:inset-x-2 max-sm:top-16 max-sm:w-auto max-sm:max-w-none">
                   <p className="px-2 pt-1.5 pb-1 text-xs font-medium text-subtle">Pinned messages</p>
                   {pinnedMessages.map((m) => (
                     <button
