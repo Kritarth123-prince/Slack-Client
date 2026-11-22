@@ -364,7 +364,7 @@ export function MessageBubble({
         <Avatar seed={m.authorId ?? m.authorName} name={m.authorName} avatarUrl={m.authorAvatarUrl} />
       )}
 
-      <div className={`flex min-w-0 max-w-[85%] flex-col gap-1 sm:max-w-[72%] ${m.isSelf ? "items-end" : "items-start"}`}>
+      <div className={`relative flex min-w-0 max-w-[85%] flex-col gap-1 sm:max-w-[72%] ${m.isSelf ? "items-end" : "items-start"}`}>
         {!continuation && (
           <div className={`flex items-baseline gap-1.5 px-0.5 ${m.isSelf ? "flex-row-reverse" : ""}`}>
             <span className="text-[13px] font-semibold text-fg">{m.isSelf ? "You" : m.authorName}</span>
@@ -469,175 +469,179 @@ export function MessageBubble({
             <CheckCheck size={12} /> Seen by {seenBy.join(", ")}
           </span>
         )}
-      </div>
 
-      {!m.isDeleted && !isEditing && (
-        <div
-          ref={toolbarRef}
-          className={`absolute -top-3.5 z-10 ${m.isSelf ? "left-1" : "right-1"} ${
-            toolbarVisible ? "visible" : "invisible group-hover/msg:visible group-focus-within/msg:visible"
-          }`}
-        >
-          <div className="popover-surface flex items-center gap-px rounded-lg p-0.5" role="toolbar" aria-label="Message actions">
-            <ToolbarButton label="Add reaction" onClick={() => openPopover("picker")}>
-              <SmilePlus size={15} />
-            </ToolbarButton>
-            {context === "feed" && (
-              <ToolbarButton label="Reply in thread" onClick={run(() => onReply(m))}>
-                <MessageSquare size={15} />
+        {!m.isDeleted && !isEditing && (
+          // Attached to the message itself rather than the far edge of the row, where it floated away
+          // from short messages on wide screens, and never over the message's own text. From sm up it
+          // sits in the empty space beside the message (right of theirs, left of yours); on phones a
+          // bubble can fill the width, so it sits just above it instead.
+          <div
+            ref={toolbarRef}
+            className={`absolute bottom-full z-10 mb-1 sm:top-0 sm:bottom-auto sm:mb-0 ${
+              m.isSelf ? "left-0 sm:left-auto sm:right-full sm:mr-2" : "right-0 sm:right-auto sm:left-full sm:ml-2"
+            } ${toolbarVisible ? "visible" : "invisible group-hover/msg:visible group-focus-within/msg:visible"}`}
+          >
+            <div className="popover-surface flex items-center gap-px rounded-lg p-0.5" role="toolbar" aria-label="Message actions">
+              <ToolbarButton label="Add reaction" onClick={() => openPopover("picker")}>
+                <SmilePlus size={15} />
               </ToolbarButton>
-            )}
-            <ToolbarButton label={m.savedByMe ? "Remove from saved" : "Save for later"} onClick={run(() => onToggleSave(m))}>
-              {m.savedByMe ? <BookmarkCheck size={15} className="text-accent-text" /> : <Bookmark size={15} />}
-            </ToolbarButton>
-            <ToolbarButton label="More actions" onClick={() => openPopover("menu")}>
-              <MoreHorizontal size={15} />
-            </ToolbarButton>
-          </div>
+              {context === "feed" && (
+                <ToolbarButton label="Reply in thread" onClick={run(() => onReply(m))}>
+                  <MessageSquare size={15} />
+                </ToolbarButton>
+              )}
+              <ToolbarButton label={m.savedByMe ? "Remove from saved" : "Save for later"} onClick={run(() => onToggleSave(m))}>
+                {m.savedByMe ? <BookmarkCheck size={15} className="text-accent-text" /> : <Bookmark size={15} />}
+              </ToolbarButton>
+              <ToolbarButton label="More actions" onClick={() => openPopover("menu")}>
+                <MoreHorizontal size={15} />
+              </ToolbarButton>
+            </div>
 
-          {pickerOpen &&
-            (fullPickerOpen ? (
-              <EmojiPicker onPick={pickReaction} align={m.isSelf ? "left" : "right"} placement={placeBelow ? "below" : "above"} />
-            ) : (
-              <div className={`popover-surface absolute z-20 flex items-center gap-0.5 rounded-xl p-1 ${popoverPosition}`}>
-                {QUICK_REACTIONS.map((name) => (
+            {pickerOpen &&
+              (fullPickerOpen ? (
+                <EmojiPicker onPick={pickReaction} align={m.isSelf ? "left" : "right"} placement={placeBelow ? "below" : "above"} />
+              ) : (
+                <div className={`popover-surface absolute z-20 flex items-center gap-0.5 rounded-xl p-1 ${popoverPosition}`}>
+                  {QUICK_REACTIONS.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      title={`:${name}:`}
+                      onClick={() => {
+                        onToggleReaction(m.id, name);
+                        closePopovers();
+                      }}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-lg hover:bg-surface-2"
+                    >
+                      <EmojiGlyph glyph={emojiGlyph(name)} />
+                    </button>
+                  ))}
                   <button
-                    key={name}
                     type="button"
-                    title={`:${name}:`}
-                    onClick={() => {
-                      onToggleReaction(m.id, name);
-                      closePopovers();
-                    }}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-lg hover:bg-surface-2"
+                    onClick={() => setFullPickerOpen(true)}
+                    title="More emoji"
+                    aria-label="More emoji"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
                   >
-                    <EmojiGlyph glyph={emojiGlyph(name)} />
+                    <SmilePlus size={16} />
+                  </button>
+                </div>
+              ))}
+
+            {menuOpen && (
+              <div role="menu" className={`popover-surface absolute z-20 flex w-56 max-w-[85vw] flex-col rounded-xl p-1 ${popoverPosition}`}>
+                {context === "feed" && (
+                  <MenuItem icon={<MessageSquare size={15} />} onClick={run(() => onReply(m))}>
+                    Reply in thread
+                  </MenuItem>
+                )}
+                {m.text && (
+                  <MenuItem icon={<Copy size={15} />} onClick={copyText}>
+                    Copy text
+                  </MenuItem>
+                )}
+                {m.isSelf && (
+                  <MenuItem icon={<Pencil size={15} />} onClick={startEdit}>
+                    Edit message
+                  </MenuItem>
+                )}
+                <MenuItem icon={m.pinned ? <PinOff size={15} /> : <Pin size={15} />} onClick={run(() => onTogglePin(m))}>
+                  {m.pinned ? "Unpin from conversation" : "Pin to conversation"}
+                </MenuItem>
+                <MenuItem
+                  icon={<Forward size={15} />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setForwardOpen(true);
+                    ensureForwardTargetsLoaded();
+                  }}
+                >
+                  Forward…
+                </MenuItem>
+                <MenuItem
+                  icon={<AlarmClock size={15} />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setRemindOptions(remindPresets());
+                    setRemindStatus(null);
+                    setRemindOpen(true);
+                  }}
+                >
+                  Remind me about this…
+                </MenuItem>
+                {context === "feed" && onMarkUnread && (
+                  <MenuItem icon={<EyeOff size={15} />} onClick={run(() => onMarkUnread(m))}>
+                    Mark unread from here
+                  </MenuItem>
+                )}
+                {m.isSelf && (
+                  <>
+                    <div className="my-1 border-t border-line" />
+                    <MenuItem icon={<Trash2 size={15} />} danger onClick={run(() => onDelete(m))}>
+                      Delete message…
+                    </MenuItem>
+                  </>
+                )}
+              </div>
+            )}
+
+            {remindOpen && (
+              <div className={`popover-surface absolute z-20 flex w-64 max-w-[85vw] flex-col rounded-xl p-1 text-sm ${popoverPosition}`}>
+                <p className="px-2 pt-1.5 pb-1 text-xs font-medium text-subtle">Remind me</p>
+                {remindOptions.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => remindAt(p.time)}
+                    className="flex h-8 items-center rounded-md px-2 text-left text-fg hover:bg-surface-2"
+                  >
+                    {p.label}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  onClick={() => setFullPickerOpen(true)}
-                  title="More emoji"
-                  aria-label="More emoji"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
-                >
-                  <SmilePlus size={16} />
-                </button>
+                <div className="mt-1 flex items-center gap-1.5 border-t border-line px-1 pt-2 pb-1">
+                  <input
+                    type="datetime-local"
+                    value={customRemindAt}
+                    onChange={(e) => setCustomRemindAt(e.target.value)}
+                    className="h-8 min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 text-xs text-fg"
+                  />
+                  <button
+                    type="button"
+                    disabled={!customRemindAt}
+                    onClick={() => remindAt(Math.floor(new Date(customRemindAt).getTime() / 1000))}
+                    className="btn-primary h-8 shrink-0 rounded-md px-2.5 text-xs font-semibold disabled:opacity-50"
+                  >
+                    Set
+                  </button>
+                </div>
+                {remindStatus && <p className="px-2 pb-1.5 text-xs text-subtle">{remindStatus}</p>}
               </div>
-            ))}
+            )}
 
-          {menuOpen && (
-            <div role="menu" className={`popover-surface absolute z-20 flex w-56 max-w-[85vw] flex-col rounded-xl p-1 ${popoverPosition}`}>
-              {context === "feed" && (
-                <MenuItem icon={<MessageSquare size={15} />} onClick={run(() => onReply(m))}>
-                  Reply in thread
-                </MenuItem>
-              )}
-              {m.text && (
-                <MenuItem icon={<Copy size={15} />} onClick={copyText}>
-                  Copy text
-                </MenuItem>
-              )}
-              {m.isSelf && (
-                <MenuItem icon={<Pencil size={15} />} onClick={startEdit}>
-                  Edit message
-                </MenuItem>
-              )}
-              <MenuItem icon={m.pinned ? <PinOff size={15} /> : <Pin size={15} />} onClick={run(() => onTogglePin(m))}>
-                {m.pinned ? "Unpin from conversation" : "Pin to conversation"}
-              </MenuItem>
-              <MenuItem
-                icon={<Forward size={15} />}
-                onClick={() => {
-                  setMenuOpen(false);
-                  setForwardOpen(true);
-                  ensureForwardTargetsLoaded();
-                }}
-              >
-                Forward…
-              </MenuItem>
-              <MenuItem
-                icon={<AlarmClock size={15} />}
-                onClick={() => {
-                  setMenuOpen(false);
-                  setRemindOptions(remindPresets());
-                  setRemindStatus(null);
-                  setRemindOpen(true);
-                }}
-              >
-                Remind me about this…
-              </MenuItem>
-              {context === "feed" && onMarkUnread && (
-                <MenuItem icon={<EyeOff size={15} />} onClick={run(() => onMarkUnread(m))}>
-                  Mark unread from here
-                </MenuItem>
-              )}
-              {m.isSelf && (
-                <>
-                  <div className="my-1 border-t border-line" />
-                  <MenuItem icon={<Trash2 size={15} />} danger onClick={run(() => onDelete(m))}>
-                    Delete message…
-                  </MenuItem>
-                </>
-              )}
-            </div>
-          )}
-
-          {remindOpen && (
-            <div className={`popover-surface absolute z-20 flex w-64 max-w-[85vw] flex-col rounded-xl p-1 text-sm ${popoverPosition}`}>
-              <p className="px-2 pt-1.5 pb-1 text-xs font-medium text-subtle">Remind me</p>
-              {remindOptions.map((p) => (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => remindAt(p.time)}
-                  className="flex h-8 items-center rounded-md px-2 text-left text-fg hover:bg-surface-2"
-                >
-                  {p.label}
-                </button>
-              ))}
-              <div className="mt-1 flex items-center gap-1.5 border-t border-line px-1 pt-2 pb-1">
-                <input
-                  type="datetime-local"
-                  value={customRemindAt}
-                  onChange={(e) => setCustomRemindAt(e.target.value)}
-                  className="h-8 min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 text-xs text-fg"
-                />
-                <button
-                  type="button"
-                  disabled={!customRemindAt}
-                  onClick={() => remindAt(Math.floor(new Date(customRemindAt).getTime() / 1000))}
-                  className="btn-primary h-8 shrink-0 rounded-md px-2.5 text-xs font-semibold disabled:opacity-50"
-                >
-                  Set
-                </button>
+            {forwardOpen && (
+              <div className={`popover-surface absolute z-20 flex max-h-64 w-60 max-w-[85vw] flex-col overflow-y-auto rounded-xl p-1 text-sm ${popoverPosition}`}>
+                <p className="px-2 pt-1.5 pb-1 text-xs font-medium text-subtle">Forward to…</p>
+                {forwardTargets === null && <p className="px-2 py-1.5 text-subtle">Loading…</p>}
+                {forwardTargets?.length === 0 && <p className="px-2 py-1.5 text-subtle">No conversations</p>}
+                {forwardTargets?.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      setForwardOpen(false);
+                      onForwardTo(m.id, t.id);
+                    }}
+                    className="flex h-8 shrink-0 items-center truncate rounded-md px-2 text-left text-fg hover:bg-surface-2"
+                  >
+                    <span className="truncate">{t.label}</span>
+                  </button>
+                ))}
               </div>
-              {remindStatus && <p className="px-2 pb-1.5 text-xs text-subtle">{remindStatus}</p>}
-            </div>
-          )}
-
-          {forwardOpen && (
-            <div className={`popover-surface absolute z-20 flex max-h-64 w-60 max-w-[85vw] flex-col overflow-y-auto rounded-xl p-1 text-sm ${popoverPosition}`}>
-              <p className="px-2 pt-1.5 pb-1 text-xs font-medium text-subtle">Forward to…</p>
-              {forwardTargets === null && <p className="px-2 py-1.5 text-subtle">Loading…</p>}
-              {forwardTargets?.length === 0 && <p className="px-2 py-1.5 text-subtle">No conversations</p>}
-              {forwardTargets?.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => {
-                    setForwardOpen(false);
-                    onForwardTo(m.id, t.id);
-                  }}
-                  className="flex h-8 shrink-0 items-center truncate rounded-md px-2 text-left text-fg hover:bg-surface-2"
-                >
-                  <span className="truncate">{t.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
